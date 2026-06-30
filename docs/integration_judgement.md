@@ -4,34 +4,39 @@
 
 ## 当前判断
 
-`26RC_R2_behavior` 应保持为 R2 行为树资源包，而不是新的核心行为树框架包。
+`26RC_R2_behavior` 应是 R2 独立行为树包，而不是只保存 XML 的资源包。
 
-当前最合适的策略是：
+当前策略：
 
-1. 复用 `pb2025_sentry_behavior` 的执行器、client 和 BT 插件。
-2. R2 包内只维护 XML 行为树、参数、launch、文档和接入记录。
-3. 能用已有 ROS topic/action/service 表达的能力，优先复用接口。
-4. 能用 PB2025 已有 BT 节点表达的能力，优先复用节点。
-5. 只有确认没有可复用节点时，才新增最小 BT 插件。
-6. 不把感知、规划、机械臂控制细节塞进行为树节点；行为树只编排任务级接口。
+1. PB2025 只作为模板参考，不作为运行依赖。
+2. R2 包内维护自己的最小 BT 运行器和当前必需节点。
+3. 不复制 PB2025 的裁判系统、自瞄、云台、RFID 等 R2 当前不用的插件。
+4. 能用已有 R2/Sakiko ROS topic/action/service 表达的能力，优先复用接口。
+5. 只有确认没有可复用接口时，才新增最小 BT 节点。
+6. 感知、规划、机械臂控制细节不塞进行为树节点；行为树只编排任务级接口。
 
-## 已确认可复用内容
+## 已实现独立内容
 
-### PB2025 运行时
+### R2 运行器
 
-- `pb2025_sentry_behavior_server`
-- `pb2025_sentry_behavior_client`
-- `pb2025_sentry_behavior/bt_plugins`
+- `r2_behavior_server`
+  - 加载 `behavior_trees/` 下的 XML。
+  - 注册当前 R2 需要的 BT 节点。
+  - 订阅 `manual_start`。
+  - 按 `tick_frequency` 周期 tick 指定 `target_tree`。
+- `r2_behavior_client`
+  - 默认空闲，不自动发车。
+  - 设置 `auto_start:=true` 时可发布一次 `manual_start`。
 
-### PB2025 BT 节点
+### R2 BT 节点
 
 - `IsManualStart`
-  - 用于从 `manual_start` `std_msgs/msg/Int32` 启动流程。
+  - 通过 `manual_start` `std_msgs/msg/Int32` 启动流程。
 - `PubNav2Goal`
-  - 用于向 `goal_pose` 发布 `geometry_msgs/msg/PoseStamped`。
-  - 注意：PB2025 实现中 `frame_id` 固定为 `map`。
+  - 向 `goal_pose` 发布 `geometry_msgs/msg/PoseStamped`。
+  - 当前 `frame_id` 固定为 `map`。
 - `PublishTwist`
-  - 用于向 `cmd_vel` 发布 `geometry_msgs/msg/Twist`。
+  - 向 `cmd_vel` 发布 `geometry_msgs/msg/Twist`。
   - 当前主要用于停车。
 
 ### BehaviorTree.CPP 内置节点
@@ -46,10 +51,12 @@
 
 当前行为树能实现：
 
+- 独立启动 R2 行为树 server。
+- 加载主树或 dry-run 树。
 - 通过 `manual_start` 手动启动。
 - 发布导航目标占位点到 `goal_pose`。
-- 发布零速度到 `cmd_vel` 实现停车。
-- 用 `AlwaysFailure` 明确阻断未接入能力，避免实车误跑完整任务。
+- 发布零速度到 `cmd_vel`。
+- 用 `AlwaysFailure` 阻断未接入能力，避免实车误跑完整任务。
 
 当前行为树不能直接完成：
 
@@ -77,23 +84,16 @@
 
 判断：
 
-- 如果 `rc2026_navigation` 接收 `map` frame，则继续复用 `PubNav2Goal`。
-- 如果实车只稳定接收 `odom` frame，应优先修改导航侧或增加配置适配；不要先写新的 BT 节点。
+- 如果导航接收 `map` frame，继续使用当前 `PubNav2Goal`。
+- 如果实车只稳定接收 `odom` frame，优先在导航侧或 TF 侧适配；不要先写一堆业务节点。
 
 ### 2. 启动、健康检查、急停
 
-目标：保证实车安全启动和安全停止。
-
 建议接口：
 
-- `manual_start`：继续复用 `IsManualStart`。
-- `/r2/health/status`：建议封装为任务级状态 topic 或 service。
-- `/r2/emergency_stop`：建议接成条件节点或外部安全层直接切断运动。
-
-判断：
-
-- 健康检查可以先由外部节点汇总，再给行为树一个简单条件。
-- 急停不应只依赖行为树，底层硬件/控制链路也要能独立停止。
+- `manual_start`：已接入。
+- `/r2/health/status`：建议由外部节点汇总健康状态。
+- `/r2/emergency_stop`：建议接成条件节点，同时保留底层独立急停链路。
 
 ### 3. 吸盘
 
@@ -103,18 +103,16 @@
 
 当前判断：
 
-- PB2025 没有现成的通用 `std_msgs/msg/Bool` publisher BT 节点。
-- 不建议为了吸盘立刻写一套大插件。
+- 当前 R2 包还没有 Bool publisher 节点。
+- 不建议为了吸盘写大型插件。
 
 优先路线：
 
-1. 若可接受改吸盘侧接口，给 `r2_suction_control` 增加任务级 service/action，例如 `/r2/suction/set`。
-2. 若必须保持 `/cmd_suction_suck`，再新增一个最小通用 Bool publisher BT 插件。
-3. 同时补反馈：真空压力、吸附状态或视觉确认，否则行为树无法判断抓取成功。
+1. 若可接受改吸盘侧接口，增加任务级 service/action，例如 `/r2/suction/set`。
+2. 若必须保持 `/cmd_suction_suck`，再新增最小通用 Bool publisher BT 节点。
+3. 同时补反馈：真空压力、吸附状态或视觉确认。
 
 ### 4. 端头与装配
-
-目标：把复杂机械臂/视觉逻辑藏在任务级 action 后面。
 
 建议接口：
 
@@ -123,14 +121,9 @@
 - `/r2/perception/weapon_assembled`
 - `/r2/perception/r1_assembly_ready`
 
-判断：
-
-- 行为树不应直接控制每个关节或视觉细节。
-- 每个 action 应返回明确结果：成功、可重试失败、规则阻断、致命失败。
+行为树不应直接控制每个关节或视觉细节。
 
 ### 5. 梅林任务
-
-目标：从连续导航切换到离散规则任务。
 
 建议接口：
 
@@ -142,11 +135,7 @@
 - `/r2/manipulation/pick_adjacent_kfs`
 - `/r2/perception/payload_state`
 
-判断：
-
-- 梅林内不能直接当普通 Nav2 连续空间导航。
-- 规划器必须理解方块编号、相邻关系、KFS 类型、假 KFS 禁止接触、10/11/12 出口规则。
-- 行为树只调用“进入、抓取、退出”等任务级 action。
+规划器必须理解方块编号、相邻关系、KFS 类型、假 KFS 禁止接触、10/11/12 出口规则。
 
 ### 6. 对抗区中层放置
 
@@ -157,37 +146,34 @@
 - `/r2/manipulation/place_kfs_middle`
 - `/r2/perception/payload_state`
 
-判断：
-
-- R2 默认只做中层放置。
-- 顶层放置和 R1 举升相关逻辑暂不接入主树。
+当前默认只接中层放置。顶层放置和 R1 举升相关逻辑暂不接入主树。
 
 ## 新增代码准则
 
 新增代码前必须先回答：
 
-1. PB2025 是否已有节点能做？
+1. R2 现有节点是否已经能做？
 2. Sakiko/现有 R2 包是否已有 topic/action/service 能直接复用？
-3. 能否把能力做成外部任务级 action/service，而不是 BT 插件？
-4. 如果必须新增 BT 插件，是否能做到通用、极小、无业务细节？
+3. 能否把能力做成外部任务级 action/service，而不是 BT 节点？
+4. 如果必须新增 BT 节点，是否能做到通用、极小、无业务细节？
 
-允许新增的低风险插件类型：
+允许新增的低风险节点类型：
 
 - 通用 Bool publisher。
 - 通用 String/Int publisher。
 - 通用 service/action wrapper。
 
-不建议新增的插件类型：
+不建议新增的节点类型：
 
 - 内含复杂视觉逻辑的 BT 节点。
 - 内含机械臂轨迹细节的 BT 节点。
 - 内含梅林搜索/规则判断的大型 BT 节点。
-- 新的行为树执行器。
+- 第二套行为树框架。
 
 ## 后续调研检查清单
 
 - [ ] 确认 `rc2026_navigation` 实车使用 `map` 还是 `odom` frame。
-- [ ] 确认 PB2025 `PubNav2Goal` 是否满足 R2 外部导航需求。
+- [ ] 确认当前 `PubNav2Goal` 是否满足 R2 外部导航需求。
 - [ ] 确认吸盘接口是否能从 topic 改为 service/action。
 - [ ] 确认 KFS tracker 输出是否能稳定映射到 1-12 号方块。
 - [ ] 确认端头识别与 KFS 识别是否共用相机/模型。
