@@ -1,0 +1,122 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<root BTCPP_format="4">
+
+  <BehaviorTree ID="StopAllMotion">
+    <Sequence>
+      <PublishTwist topic_name="cmd_vel"
+                    duration="0"
+                    v_x="0.0"
+                    v_y="0.0"
+                    v_yaw="0.0"/>
+    </Sequence>
+  </BehaviorTree>
+
+  <BehaviorTree ID="PreMatchAndStart">
+    <Sequence>
+      <!-- TODO interface: /r2/health/status + TF + sensor freshness -->
+      <AlwaysSuccess name="PreMatchSelfCheckPlaceholder"/>
+      <IsManualStart key_port="{@manual_start}"
+                     start_value="1"/>
+    </Sequence>
+  </BehaviorTree>
+
+  <BehaviorTree ID="MC_AssembleWeapon">
+    <Sequence>
+      <PubNav2Goal topic_name="goal_pose"
+                   goal="0.0;0.0;0.0"/>
+
+      <!-- TODO interface: /r2/manipulation/pick_tip action -->
+      <AlwaysFailure name="DetectAndPickSpearheadPlaceholder"/>
+
+      <PubNav2Goal topic_name="goal_pose"
+                   goal="0.0;0.0;0.0"/>
+
+      <!-- TODO interfaces:
+           /r2/perception/r1_assembly_ready
+           /r2/rule_guard/no_body_contact
+           /r2/manipulation/assemble_tip_to_pole action
+           /r2/perception/weapon_assembled
+      -->
+      <AlwaysFailure name="AssembleWeaponPlaceholder"/>
+    </Sequence>
+  </BehaviorTree>
+
+  <BehaviorTree ID="WaitForR1BeforeR2LeavesMC">
+    <Sequence>
+      <SubTree ID="StopAllMotion"/>
+      <!-- TODO interface: /r2/perception/r1_entered_mf, avoid wireless R1-R2 communication -->
+      <AlwaysFailure name="WaitUntilR1FullyEnteredMFPlaceholder"/>
+    </Sequence>
+  </BehaviorTree>
+
+  <BehaviorTree ID="MF_CollectSingleR2KFS">
+    <Sequence>
+      <PubNav2Goal topic_name="goal_pose"
+                   goal="0.0;0.0;0.0"/>
+
+      <!-- TODO interfaces:
+           /r2/forest/enter action
+           /kfs_tracker/detection -> /r2/perception/kfs_map
+           /r2/rule_guard/check_forest_plan
+           /r2/forest/planner
+           /r2/nav/go_to_woods_block action
+           /r2/manipulation/pick_adjacent_kfs action
+           /r2/perception/payload_state
+      -->
+      <AlwaysFailure name="CollectSingleR2KFSPlaceholder"/>
+    </Sequence>
+  </BehaviorTree>
+
+  <BehaviorTree ID="MF_ExitForest">
+    <Sequence>
+      <!-- TODO interfaces:
+           /r2/perception/payload_state
+           /r2/forest/planner
+           /r2/nav/follow_woods_graph_path action
+           /r2/forest/exit action
+      -->
+      <AlwaysFailure name="ExitForestViaBlock10_11_12Placeholder"/>
+    </Sequence>
+  </BehaviorTree>
+
+  <BehaviorTree ID="Battlefield_PlaceMiddleLayer">
+    <Sequence>
+      <PubNav2Goal topic_name="goal_pose"
+                   goal="0.0;0.0;0.0"/>
+
+      <!-- TODO interfaces:
+           /r2/perception/grid_state
+           /r2/strategy/select_grid_cell
+           /r2/manipulation/place_kfs_middle action
+           /r2/perception/payload_state
+      -->
+      <AlwaysFailure name="PlaceMiddleLayerPlaceholder"/>
+    </Sequence>
+  </BehaviorTree>
+
+  <BehaviorTree ID="R2_Competition_Main">
+    <ReactiveFallback name="R2Root">
+      <Sequence name="EmergencyStopBranch">
+        <!-- TODO interface: /r2/emergency_stop -->
+        <AlwaysFailure name="IsEmergencyStopRequestedPlaceholder"/>
+        <SubTree ID="StopAllMotion"/>
+      </Sequence>
+
+      <Sequence name="RetryRecoveryBranch">
+        <!-- TODO interfaces: /r2/retry/request, /r2/retry/execute action -->
+        <AlwaysFailure name="IsRetryRequestedPlaceholder"/>
+        <AlwaysFailure name="ExecuteAreaAwareRetryPlaceholder"/>
+      </Sequence>
+
+      <Sequence name="CompetitionMission">
+        <SubTree ID="PreMatchAndStart"/>
+        <SubTree ID="MC_AssembleWeapon"/>
+        <SubTree ID="WaitForR1BeforeR2LeavesMC"/>
+        <SubTree ID="MF_CollectSingleR2KFS"/>
+        <SubTree ID="MF_ExitForest"/>
+        <SubTree ID="Battlefield_PlaceMiddleLayer"/>
+        <SubTree ID="StopAllMotion"/>
+      </Sequence>
+    </ReactiveFallback>
+  </BehaviorTree>
+</root>
