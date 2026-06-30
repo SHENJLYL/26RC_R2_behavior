@@ -174,3 +174,8 @@ placeholders. No custom placeholder C++ plugin is added.
 5. Replace waypoint placeholders with calibrated task poses.
 6. Implement one placeholder interface at a time, starting with health check,
    payload feedback, KFS block map, and forest rule guard.
+
+## Follow-up Judgement Record
+
+See `docs/integration_judgement.md` for the current integration judgement,
+reuse-first policy, and future research checklist.
