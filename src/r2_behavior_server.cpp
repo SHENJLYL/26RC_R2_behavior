@@ -9,6 +9,7 @@
 #include <memory>
 
 #include "ament_index_cpp/get_package_share_directory.hpp"
+#include "r2_behavior/plugins/action/navigate_to_named_pose.hpp"
 #include "r2_behavior/plugins/action/pub_nav2_goal.hpp"
 #include "r2_behavior/plugins/action/pub_twist.hpp"
 #include "r2_behavior/plugins/condition/is_manual_start.hpp"
@@ -65,6 +66,12 @@ void R2BehaviorServer::registerNodes()
     "PublishTwist",
     [node](const std::string & name, const BT::NodeConfiguration & config) {
       return std::make_unique<PublishTwistAction>(name, config, node);
+    });
+
+  factory_.registerBuilder<NavigateToNamedPoseAction>(
+    "NavigateToNamedPose",
+    [node](const std::string & name, const BT::NodeConfiguration & config) {
+      return std::make_unique<NavigateToNamedPoseAction>(name, config, node);
     });
 }
 

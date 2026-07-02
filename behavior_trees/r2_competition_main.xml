@@ -22,8 +22,9 @@
 
   <BehaviorTree ID="MC_AssembleWeapon">
     <Sequence>
-      <PubNav2Goal topic_name="goal_pose"
-                   goal="0.0;0.0;0.0"/>
+      <NavigateToNamedPose target="spearhead_rack_standoff"
+                           team_side="red"
+                           timeout_sec="45.0"/>
 
       <!-- TODO interface: /r2/manipulation/pick_tip action -->
       <AlwaysFailure name="DetectAndPickSpearheadPlaceholder"/>

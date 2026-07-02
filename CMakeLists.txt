@@ -10,7 +10,9 @@ find_package(ament_index_cpp REQUIRED)
 find_package(behaviortree_cpp_v3 REQUIRED)
 find_package(Curses REQUIRED)
 find_package(geometry_msgs REQUIRED)
+find_package(r2_nav_interfaces REQUIRED)
 find_package(rclcpp REQUIRED)
+find_package(rclcpp_action REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(tf2_geometry_msgs REQUIRED)
 
@@ -20,6 +22,7 @@ add_executable(
   r2_behavior_server
   src/r2_behavior_server.cpp
   plugins/condition/is_manual_start.cpp
+  plugins/action/navigate_to_named_pose.cpp
   plugins/action/pub_nav2_goal.cpp
   plugins/action/pub_twist.cpp
 )
@@ -28,7 +31,9 @@ ament_target_dependencies(
   ament_index_cpp
   behaviortree_cpp_v3
   geometry_msgs
+  r2_nav_interfaces
   rclcpp
+  rclcpp_action
   std_msgs
   tf2_geometry_msgs
 )
