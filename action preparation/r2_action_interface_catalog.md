@@ -21,6 +21,7 @@
 | `goal_pose` | topic `geometry_msgs/msg/PoseStamped` | 直接发 Nav2 目标 | 保留为调试/简化接口 |
 | `cmd_vel` | topic `geometry_msgs/msg/Twist` | 停车或底盘速度 | 仅用于停车或底盘调试，不建议任务树长期直接控速度 |
 | `/cmd_suction_suck` | topic `std_msgs/msg/Bool` | 吸盘开关候选接口 | 建议外面包一层任务级 action 并补反馈 |
+| `/r2/perception/kfs_map` | topic `KFSMap.msg` | 统一 KFS 方块地图 | 由网页手动确认、视觉识别或动作结果共同维护，BT 只读该统一状态 |
 
 ## 全局状态与规则服务
 
@@ -70,6 +71,60 @@
 | 读取 | 吸盘真空压力、吸盘开关状态、机械臂相机确认、夹爪状态 |
 | 输出 | `payload_type` = `NONE/R2_KFS/R1_KFS/FAKE_KFS/TIP/UNKNOWN`，`confidence`，`held_by` = `SUCTION/GRIPPER/NONE`，`stamp` |
 | BT 用法 | 抓取前确认空载，离开树林前确认携带 R2 KFS，对抗区放置后确认空载 |
+
+## 赛前网页手动确认 KFS map
+
+该方案用于比赛设置阶段：对方在本队梅林树林方块上放好 KFS 后，由操作员通过网页手动确认 1-12 号方块上分别放置了什么类型的 KFS。网页不应直接被行为树调用；网页只负责写入和确认 KFS map，行为树读取统一的 `/r2/perception/kfs_map` 并等待确认状态。
+
+### `/r2/setup/submit_manual_kfs_map`
+
+建议类型：service `SubmitManualKFSMap.srv`。
+
+| 项 | 内容 |
+|---|---|
+| 目的 | 让网页把人工确认的树林 KFS 分布提交给 ROS 系统 |
+| 调用方 | 网页后端或本地操作界面节点，不建议由 BT 直接调用 |
+| 输入 | `team_side`、`map_version`、`operator_id`、`blocks[1..12]`、`confirm=true/false`、`lock_for_match=true/false` |
+| `blocks` 内容 | 每个方块含 `block_id`、`kfs_type`、`occupancy`、`manual_note` |
+| 校验 | 1-12 号不可重复；总数应为 3 个 `R1_KFS`、4 个 `R2_KFS`、1 个 `FAKE_KFS`；假KFS 不应在 1/2/3 号入口方块；未知格必须显式标记 |
+| 输出 | `accepted`、`error_code`、`message`、`normalized_map`、`map_version` |
+| 失败例 | `INVALID_COUNT`、`DUPLICATE_BLOCK`、`FAKE_KFS_AT_ENTRY`、`UNKNOWN_BLOCK_TYPE`、`MAP_ALREADY_LOCKED` |
+| 结果作用 | 被接受后由 map 管理节点发布 `/r2/perception/kfs_map` |
+
+### `/r2/setup/wait_for_kfs_map_confirmation`
+
+建议类型：action `WaitForKFSMapConfirmation.action`。
+
+| 项 | 内容 |
+|---|---|
+| 目的 | 行为树等待人工 KFS map 已确认且已锁定 |
+| 输入 | `timeout_sec`、`require_locked=true`、`accepted_sources=[MANUAL_SETUP]`、`required_map_version` |
+| 读取 | `/r2/perception/kfs_map`、人工确认状态、map 校验结果 |
+| feedback | `current_state` = `WAITING/INVALID/CONFIRMED/LOCKED`，`missing_blocks[]`，`validation_errors[]` |
+| result | `confirmed`、`locked`、`map_version`、`source`、`error_code`、`message` |
+| BT 用法 | 放在 `PreMatchAndStart` 或进入梅林前，确保没有确认 map 时不会进入树林任务 |
+
+### `/r2/perception/kfs_map`
+
+建议类型：topic `KFSMap.msg`，QoS 建议使用 `transient_local`，保证晚启动节点也能拿到最近一次确认 map。
+
+| 项 | 内容 |
+|---|---|
+| 目的 | 给行为树、规则检查、树林规划、抓取 action 提供统一 KFS 方块地图 |
+| 来源 | `MANUAL_SETUP`、`VISION_OBSERVED`、`ACTION_UPDATED`、`FUSED` |
+| 字段 | `map_version`、`source`、`confirmed`、`locked`、`stamp`、`blocks[1..12]` |
+| 使用原则 | 赛前以 `MANUAL_SETUP` 为初始可信地图；比赛中抓取、放置、掉落、视觉复查后生成更新版本 |
+| BT 用法 | BT 不关心网页实现，只检查 `confirmed=true` 且 `locked=true` 的统一 map |
+
+### 手动 map 与视觉 map 的关系
+
+| 阶段 | 推荐来源 | 处理方式 |
+|---|---|---|
+| 赛前设置结束 | 网页人工确认 | 作为初始 `kfs_map`，source=`MANUAL_SETUP` |
+| 进入树林前 | 初始手动 map + 规则检查 | 规划器以手动 map 为准，视觉只做安全复核 |
+| 抓取后 | action 结果 | 将目标方块标记为 `EMPTY` 或 `UPDATED_BY_ACTION` |
+| 运动中发现不一致 | 视觉复查 | 发布新 map version，并让规划器重新规划 |
+| 人工 map 未确认 | 无 | BT 不进入梅林收集阶段 |
 
 ## 武馆 action
 
@@ -149,12 +204,13 @@
 
 | 项 | 内容 |
 |---|---|
-| 目的 | 将视觉检测转换为 1-12 号树林方块的 KFS 占用图 |
-| 输入 | `zone`、`team_side`、`known_block_layout`、`timeout_sec` |
-| 读取 | 机械臂深度相机、前方深度相机、激光雷达、方块几何标定、KFS 分类模型 |
-| 输出 | `kfs_map[1..12]`，每格含 `occupancy`、`kfs_type`、`pose`、`confidence`、`last_seen` |
-| BT 用法 | 进入树林前、每次移动/抓取后刷新 |
+| 目的 | 维护 1-12 号树林方块的 KFS 占用图，并把网页手动 map、视觉观测和动作结果统一成 `/r2/perception/kfs_map` |
+| 输入 | `zone`、`team_side`、`known_block_layout`、`source_preference`、`timeout_sec` |
+| 读取 | 网页人工确认 map、机械臂深度相机、前方深度相机、激光雷达、方块几何标定、KFS 分类模型、抓取/放置 action 结果 |
+| 输出 | `kfs_map[1..12]`，每格含 `occupancy`、`kfs_type`、`pose`、`confidence`、`source`、`last_seen`、`map_version` |
+| BT 用法 | 进入树林前确认 map 已锁定；每次移动/抓取后刷新或校验 |
 | 分类 | `EMPTY/R1_KFS/R2_KFS/FAKE_KFS/UNKNOWN/OCCLUDED` |
+| 注意 | 赛前人工确认是初始地图，不应替代比赛中对抓取结果和异常情况的更新 |
 
 ### `/r2/forest/plan_single_kfs_task`
 
@@ -312,6 +368,8 @@
 | `PayloadState.msg` | msg | 全局载荷状态 |
 | `KFSBlockState.msg` | msg | 单个树林方块的 KFS 分类与位姿 |
 | `KFSMap.msg` | msg | 1-12 号方块占用图 |
+| `SubmitManualKFSMap.srv` | srv | 网页提交并校验人工确认的 KFS map |
+| `WaitForKFSMapConfirmation.action` | action | 行为树等待赛前 KFS map 已确认且锁定 |
 | `R1QRCodeState.msg` | msg | R1 二维码状态、可见性和时间戳 |
 | `WheelHeightState.msg` | msg | 四轮红外高度、丝杠圈数/电流 |
 | `RuleGuardCheck.srv` | srv | 规则检查 |
@@ -320,4 +378,3 @@
 | `PlaceKFSMiddle.action` | action | 中层放置 KFS |
 | `StepToAdjacentBlock.action` | action | 树林方块移动 |
 | `SetTravelMode.action` | action | 切换底盘抬升模式 |
-

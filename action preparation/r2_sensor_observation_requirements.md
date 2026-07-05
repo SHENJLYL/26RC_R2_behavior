@@ -162,6 +162,43 @@
 
 ## 树林 KFS map
 
+### 赛前网页手动确认
+
+当前待定方案是：对方完成 KFS 放置后，操作员通过网页手动确认 1-12 号树林方块上的 KFS 类型。该网页应被视为 KFS map 的输入端，而不是行为树的一部分。
+
+建议链路：
+
+```text
+网页人工录入
+-> /r2/setup/submit_manual_kfs_map
+-> KFS map 管理节点校验
+-> /r2/perception/kfs_map
+-> 行为树 / 规则检查 / 树林规划读取
+```
+
+人工确认 map 的状态必须包含：
+
+| 字段 | 含义 |
+|---|---|
+| `source` | `MANUAL_SETUP` |
+| `confirmed` | 操作员已确认 |
+| `locked` | 比赛开始后不允许网页随意修改 |
+| `map_version` | 每次提交或修正递增 |
+| `operator_id` | 可选，记录是谁确认的 |
+| `validation_errors[]` | 如果不满足规则约束，列出错误 |
+
+网页提交时应强制校验：
+
+| 校验项 | 目的 |
+|---|---|
+| 1-12 号方块编号不重复 | 防止录入错位 |
+| 3 个 `R1_KFS`、4 个 `R2_KFS`、1 个 `FAKE_KFS` | 匹配规则中每队梅林 KFS 设置数量 |
+| 假KFS 不在 1/2/3 号入口方块 | 匹配规则设置约束 |
+| 未确认方块显式为 `UNKNOWN` | 防止空白格被误认为空方块 |
+| 点击确认后生成 `locked=true` | 防止比赛中误改初始地图 |
+
+行为树不直接读取网页页面状态，只读取 `/r2/perception/kfs_map`。如果 `confirmed=false` 或 `locked=false`，行为树不应进入 `MF_CollectSingleR2KFS`。
+
 ### 建议数据结构
 
 每个方块记录：
@@ -175,7 +212,27 @@
 | `reachable_from_current` | 当前方块是否可合法触达 |
 | `adjacent_to_current` | 是否与当前方块相邻 |
 | `confidence` | 视觉分类置信度 |
+| `source` | `MANUAL_SETUP/VISION_OBSERVED/ACTION_UPDATED/FUSED` |
 | `last_seen_stamp` | 最后观测时间 |
+
+### 比赛中的更新策略
+
+赛前人工 map 只表示“开局时各方块放了什么”。比赛开始后，map 必须允许被动作结果和视觉复核更新：
+
+| 事件 | map 更新 |
+|---|---|
+| 成功吸取某方块相邻 R2 KFS | 目标方块从 `R2_KFS` 改为 `EMPTY`，source=`ACTION_UPDATED` |
+| 抓取失败但视觉仍看到 KFS | 保持原类型，增加失败记录和时间戳 |
+| 视觉发现人工 map 与现场不一致 | 标记为 `CONFLICT` 或提升到 `UNKNOWN`，请求重新识别/重规划 |
+| KFS 掉落在树林内 | 记录掉落 pose 和可处理状态 |
+| KFS 掉落在树林外 | 标记为不可再捡取，供 rule_guard 禁止抓取 |
+
+建议保留两个概念：
+
+| 名称 | 作用 |
+|---|---|
+| `initial_kfs_map` | 赛前网页确认的开局地图，用于追溯和复盘 |
+| `current_kfs_map` | 比赛进行中的当前地图，供规划和规则检查使用 |
 
 ### rosbag 必录 topic
 
@@ -189,6 +246,7 @@
 /tf_static
 /r2/chassis/wheel_height_state
 /r2/chassis/travel_mode_state
+/r2/setup/manual_kfs_map_state
 /r2/perception/payload_state
 /r2/perception/kfs_map
 /r2/perception/r1_qr_state
@@ -199,4 +257,3 @@
 /r2/navigation/navigate_to_named_pose/_action/feedback
 /r2/navigation/navigate_to_named_pose/_action/result
 ```
-

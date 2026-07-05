@@ -26,6 +26,9 @@ Makefile
 *.swo
 *~
 
+# Local study notes and annotated copies
+study/
+
 # Editor / OS metadata
 .vscode/
 .idea/

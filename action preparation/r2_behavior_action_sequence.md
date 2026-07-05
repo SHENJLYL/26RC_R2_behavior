@@ -38,18 +38,46 @@ R2_Competition_Main
 
 ```text
 PreMatchSelfCheck
+-> WaitForKFSMapConfirmation
 -> IsManualStart
 ```
 
 | 当前节点 | 后续接口 | 读取信息 | 成功条件 |
 |---|---|---|---|
 | `PreMatchSelfCheckPlaceholder` | `/r2/health/check_start_ready` | TF、导航 action、雷达、相机、机械臂、吸盘、底盘、急停 | 所有关键模块 ready，或只存在允许 warning |
+| 新增建议节点 `WaitForKFSMapConfirmation` | `/r2/setup/wait_for_kfs_map_confirmation` | `/r2/perception/kfs_map`、网页人工确认状态、map 校验结果 | 赛前 KFS map 已确认且锁定 |
 | `IsManualStart` | `/manual_start` | `std_msgs/msg/Int32` | 收到 `>= 1` |
 
 行为树策略：
 
 - `IsManualStart` 保持现状。
 - 健康检查失败时不进入后续任务，输出清晰的 `blocking_errors[]`。
+- 如果使用网页人工确认 KFS 位置，则必须在比赛开始前完成确认并锁定 map。
+- 行为树不直接依赖网页页面，只等待 ROS 层的 `/r2/perception/kfs_map confirmed=true locked=true`。
+
+### 1.1 赛前网页 KFS map 确认
+
+```text
+OpponentPlacesKFS
+-> OperatorConfirmsInWebPage
+-> SubmitManualKFSMap
+-> ValidateAndLockMap
+-> PublishUnifiedKFSMap
+```
+
+| 能力 | 后续接口 | 进入条件 | 输出 |
+|---|---|---|---|
+| 网页提交人工 map | `/r2/setup/submit_manual_kfs_map` | 对方完成梅林 KFS 放置，操作员完成 1-12 号方块录入 | `accepted`、`map_version`、`validation_errors[]` |
+| 等待 map 确认 | `/r2/setup/wait_for_kfs_map_confirmation` | 行为树启动前或进入梅林前 | `confirmed=true`、`locked=true`、`source=MANUAL_SETUP` |
+| 发布统一 map | `/r2/perception/kfs_map` | 人工 map 校验通过 | 供 rule_guard、forest planner、pick action 读取 |
+
+校验规则：
+
+- 1-12 号方块编号不可重复。
+- 开局应有 3 个 `R1_KFS`、4 个 `R2_KFS`、1 个 `FAKE_KFS`。
+- 假KFS 不应位于 1/2/3 号入口方块。
+- 未确认位置必须显式标记为 `UNKNOWN`，不能默认为 `EMPTY`。
+- 锁定后的人工 map 作为 `initial_kfs_map` 保存，比赛中另用 `current_kfs_map` 随动作结果更新。
 
 ## 2. MC_AssembleWeapon
 
@@ -96,7 +124,7 @@ StopAllMotion
 ```text
 NavigateToForestEntry
 -> SetTravelMode(FOREST)
--> UpdateKFSMap
+-> WaitOrUpdateKFSMap
 -> PlanSingleKFSTask
 -> Step/Align
 -> PickAdjacentKFS
@@ -106,7 +134,7 @@ NavigateToForestEntry
 |---|---|---|---|---|
 | `PubNav2Goal goal=0.0;0.0;0.0` | 建议替换为命名航点 `forest_entry_standoff` | 导航定位、雷达 | 底盘导航 | 到达 R2 入口附近 |
 | `CollectSingleR2KFSPlaceholder` | `/r2/chassis/set_travel_mode` | 四轮红外、丝杠圈数/电流 | 抬升/模式切换 | 进入 `FOREST` 模式 |
-| 同上 | `/r2/perception/update_kfs_map` | 机械臂深度相机、前方深度相机、KFS 分类 | 生成方块占用图 | `kfs_map` 可用 |
+| 同上 | `/r2/setup/wait_for_kfs_map_confirmation` 或 `/r2/perception/update_kfs_map` | 网页人工确认 map、机械臂深度相机、前方深度相机、KFS 分类 | 生成或校验方块占用图 | `kfs_map confirmed=true` 且规划可用 |
 | 同上 | `/r2/forest/plan_single_kfs_task` | KFS map、方块邻接图、payload_state、rule_guard | 输出步骤计划 | 有合法目标和路线 |
 | 同上 | `/r2/forest/step_to_adjacent_block` | 红外、丝杠、雷达、深度、odom | 底盘移动/找平 | 到达合法方块或抓取位 |
 | 同上 | `/r2/manipulation/pick_adjacent_kfs` | KFS 位姿、分类、吸盘反馈 | 机械臂吸取 | `payload_state=R2_KFS` |
@@ -118,6 +146,7 @@ NavigateToForestEntry
 - 只能从当前位置拿取相邻方块上的 R2 KFS。
 - 如果 1/2/3 号方块上有 R2 KFS，应从 R2 入口处优先收集第一个 KFS。
 - R2 不应完全进入有 KFS 的树林方块。
+- 如果采用网页人工 map，规划器可以先以人工 map 为初始依据；抓取/移动后必须根据 action 结果更新 `current_kfs_map`。
 
 ## 5. 路径阻碍与单载荷处理
 
@@ -197,6 +226,7 @@ NavigateToBattlefield
 ### 第一阶段：树和接口可观测
 
 - 接入 `/r2/health/check_start_ready`。
+- 接入网页人工 KFS map 提交与 `/r2/setup/wait_for_kfs_map_confirmation`。
 - 接入 `/r2/perception/payload_state`。
 - 接入 `/r2/rule_guard/check`。
 - rosbag 记录所有关键状态。
@@ -211,7 +241,7 @@ NavigateToBattlefield
 ### 第三阶段：梅林基础闭环
 
 - 接入底盘抬升模式和轮端高度状态。
-- 接入 `kfs_map`。
+- 接入 `kfs_map`，优先支持赛前网页人工确认作为初始 map。
 - 只做一个最简单合法目标：识别一个相邻 R2 KFS 并吸取。
 - 暂不做复杂阻碍重排。
 
@@ -238,4 +268,3 @@ NavigateToBattlefield
 5. 最终 success 还是 failure？
 6. 如果失败，`failure_reason` 是什么？
 7. 行为树是否根据结果进入正确下一步或恢复分支？
-
