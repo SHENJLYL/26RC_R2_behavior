@@ -58,6 +58,24 @@
 
 `build/`、`install/`、`log/` 是本地构建产物，已由 `.gitignore` 忽略。
 
+## 赛事术语统一
+
+本文档采用规则 PDF 中的正式术语：
+
+| 统一术语 | 说明 |
+|---|---|
+| `武馆(MC)` | 比赛一区，机器人启动、重试和组装兵器的区域 |
+| `梅林(MF)` | 比赛二区，包含 `树林`、`R1 通道`、`R2 入口区` 和 `R2 出口区` |
+| `树林` | 梅林中的 12 个高低不同方块区域，只允许 R2 运行 |
+| `对抗区` | 比赛三区，包含坡道、九宫格和重试区 |
+| `端头` | 规则 V6 中使用的正式名称，不再写作“矛头” |
+| `端头架(SHR)` | 武馆中放置端头的架子 |
+| `兵器` | 由长杆、端头和快速接头组成 |
+| `KFS` | 武术秘籍，包括 `R1 KFS`、`R2 KFS` 和 `假KFS` |
+| `九宫格` | 对抗区内放置 KFS 的 3x3 架子，分底层、中层、顶层 |
+
+代码标识中的历史英文命名，例如 `spearhead_rack_standoff`，暂时作为接口名保留；中文描述统一使用 `端头` 和 `端头架`。
+
 ## 行为树运行内容
 
 当前本包提供两个可执行文件：
@@ -107,13 +125,13 @@
 | 健康检查 | `PreMatchSelfCheckPlaceholder` | `/r2/health/status`、TF、传感器新鲜度 |
 | 急停判断 | `IsEmergencyStopRequestedPlaceholder` | `/r2/emergency_stop`，同时保留底层急停链路 |
 | 重试恢复 | `IsRetryRequestedPlaceholder`、`ExecuteAreaAwareRetryPlaceholder` | `/r2/retry/request`、`/r2/retry/execute` |
-| 矛头识别与夹取 | `DetectAndPickSpearheadPlaceholder` | `/r2/manipulation/pick_tip` |
-| 武器装配 | `AssembleWeaponPlaceholder` | `/r2/manipulation/assemble_tip_to_pole`、`/r2/perception/weapon_assembled` |
-| R1 是否已进入密林 | `WaitUntilR1FullyEnteredMFPlaceholder` | `/r2/perception/r1_entered_mf`，避免依赖 R1-R2 无线通信 |
-| 密林进入/退出 | `CollectSingleR2KFSPlaceholder`、`ExitForestViaBlock10_11_12Placeholder` | `/r2/forest/enter`、`/r2/forest/exit` |
+| 端头识别与夹取 | `DetectAndPickSpearheadPlaceholder` | `/r2/manipulation/pick_tip` |
+| 兵器组装 | `AssembleWeaponPlaceholder` | `/r2/manipulation/assemble_tip_to_pole`、`/r2/perception/weapon_assembled` |
+| R1 是否已进入梅林 | `WaitUntilR1FullyEnteredMFPlaceholder` | `/r2/perception/r1_entered_mf`，避免依赖 R1-R2 无线通信 |
+| 进入梅林 / 退出树林 | `CollectSingleR2KFSPlaceholder`、`ExitForestViaBlock10_11_12Placeholder` | `/r2/forest/enter`、`/r2/forest/exit` |
 | KFS 检测与地图 | 未知节点待接入 | `/kfs_tracker/detection -> /r2/perception/kfs_map` |
-| 密林规划与规则检查 | 未知节点待接入 | `/r2/forest/planner`、`/r2/rule_guard/check_forest_plan` |
-| 木桩图导航 | 未知节点待接入 | `/r2/nav/go_to_woods_block`、`/r2/nav/follow_woods_graph_path` |
+| 树林方块规划与规则检查 | 未知节点待接入 | `/r2/forest/planner`、`/r2/rule_guard/check_forest_plan` |
+| 树林方块图导航 | 未知节点待接入 | `/r2/nav/go_to_woods_block`、`/r2/nav/follow_woods_graph_path` |
 | 相邻 KFS 夹取 | 未知节点待接入 | `/r2/manipulation/pick_adjacent_kfs` |
 | 吸盘与载荷反馈 | 未知节点待接入 | `/cmd_suction_suck`、`/r2/perception/payload_state` |
 | 九宫格识别和选格 | 未知节点待接入 | `/r2/perception/grid_state`、`/r2/strategy/select_grid_cell` |
@@ -135,9 +153,9 @@
 当前不能直接做到：
 
 1. 健康检查和急停闭环。
-2. 端头识别、抓取、装配。
+2. 端头识别、抓取、兵器组装。
 3. 判断 R1 已进入梅林。
-4. KFS 分类、梅林离散图规划和规则检查。
+4. KFS 分类、树林方块图规划和规则检查。
 5. 吸盘控制与 payload 反馈。
 6. 九宫格识别和中层放置动作。
 
@@ -251,14 +269,14 @@ ros2 topic pub --once /manual_start std_msgs/msg/Int32 "{data: 1}"
 
 ## 后续接入路线
 
-新增能力优先做成外部任务级 topic/service/action，再由行为树调用。不要把视觉算法、机械臂轨迹、梅林搜索规则直接塞进 BT 节点。
+新增能力优先做成外部任务级 topic/service/action，再由行为树调用。不要把视觉算法、机械臂轨迹、树林方块搜索规则直接塞进 BT 节点。
 
 建议接入顺序：
 
 1. 标定外部导航航点，替换 XML 中的 `0.0;0.0;0.0`。
 2. 接入健康检查和急停状态。
-3. 接入端头抓取与装配 action。
-4. 接入 KFS map、梅林 planner、规则检查和相邻抓取 action。
+3. 接入端头抓取与兵器组装 action。
+4. 接入 KFS map、树林方块 planner、规则检查和相邻抓取 action。
 5. 接入吸盘控制与 payload 反馈。
 6. 接入九宫格识别和中层放置 action。
 

@@ -18,6 +18,24 @@ PB2025 files and patterns followed while writing this R2 behavior tree:
 - XML organization: main tree plus reusable subtrees.
 - General node style: `IsManualStart`, `PubNav2Goal`, `PublishTwist` style wrappers.
 
+## Competition Terminology
+
+Terminology follows the rule PDF:
+
+| Term | Meaning |
+|---|---|
+| `武馆(MC)` | Zone 1; start, retry, and weapon assembly area |
+| `梅林(MF)` | Zone 2; includes the forest, R1 passage, R2 entrance, and R2 exit |
+| `树林` | The 12 numbered blocks inside MF; R2 operates here |
+| `对抗区` | Zone 3; includes ramp, nine-grid rack, and retry zone |
+| `端头` | Official V6 term for the weapon tip part |
+| `端头架(SHR)` | Rack in MC that holds the end pieces |
+| `兵器` | Assembled weapon consisting of long pole, end piece, and quick connector |
+| `KFS` | Kung Fu Scroll; includes R1 KFS, R2 KFS, and fake KFS |
+| `九宫格` | 3x3 rack in the battlefield area, with bottom/middle/top layers |
+
+Legacy code identifiers such as `spearhead_rack_standoff` are kept as interface names for now; human-facing descriptions use `端头` and `端头架`.
+
 ## Current Scope
 
 Package name: `r2_behavior`

@@ -20,6 +20,21 @@
 - 当前包按 PB2025 行为树工程结构制作，包括 `server/client`、`launch`、`params`、`behavior_trees`、`plugins`、`include`、`docs`、`test`。
 - 当前 R2 运行器、XML、参数和插件节点均保存在 `26RC_R2_behavior` 内。
 
+## 赛事术语
+
+本文档采用规则 PDF 中的正式术语：
+
+| 统一术语 | 说明 |
+|---|---|
+| `武馆(MC)` | 一区，机器人启动、重试和组装兵器的区域 |
+| `梅林(MF)` | 二区，包含树林、R1 通道、R2 入口区和 R2 出口区 |
+| `树林` | 梅林中的 12 个编号方块区域 |
+| `对抗区` | 三区，包含坡道、九宫格和重试区 |
+| `端头` | 规则 V6 正式用语，不再写作“矛头” |
+| `端头架(SHR)` | 武馆中放置端头的架子 |
+| `兵器` | 长杆、端头和快速接头组成的比赛用品 |
+| `KFS` | 武术秘籍，包括 R1 KFS、R2 KFS 和假KFS |
+
 ## 已实现行为树内容
 
 ### R2 运行器
@@ -72,10 +87,10 @@
 
 - 健康检查。
 - 急停与重试恢复。
-- 端头识别、抓取、装配。
+- 端头识别、抓取、兵器组装。
 - R1 已进入梅林检测。
 - KFS 分类和方块图构建。
-- 梅林离散图规划和规则检查。
+- 树林方块图规划和规则检查。
 - 相邻 KFS 抓取。
 - 吸盘命令和 payload 反馈闭环。
 - 九宫格识别和中层放置。
@@ -109,14 +124,14 @@
 | 健康检查 | `PreMatchSelfCheckPlaceholder` | 未接入 |
 | 急停判断 | `IsEmergencyStopRequestedPlaceholder` | 未接入 |
 | 重试恢复 | `IsRetryRequestedPlaceholder`、`ExecuteAreaAwareRetryPlaceholder` | 未接入 |
-| 矛头识别与夹取 | `DetectAndPickSpearheadPlaceholder` | 未接入 |
-| 武器装配 | `AssembleWeaponPlaceholder` | 未接入 |
-| R1 进入密林判断 | `WaitUntilR1FullyEnteredMFPlaceholder` | 未接入 |
-| 密林取 KFS | `CollectSingleR2KFSPlaceholder` | 未接入 |
-| 退出密林 | `ExitForestViaBlock10_11_12Placeholder` | 未接入 |
-| 战场中层放置 | `PlaceMiddleLayerPlaceholder` | 未接入 |
+| 端头识别与夹取 | `DetectAndPickSpearheadPlaceholder` | 未接入 |
+| 兵器组装 | `AssembleWeaponPlaceholder` | 未接入 |
+| R1 进入梅林判断 | `WaitUntilR1FullyEnteredMFPlaceholder` | 未接入 |
+| 梅林取 KFS | `CollectSingleR2KFSPlaceholder` | 未接入 |
+| 退出树林 | `ExitForestViaBlock10_11_12Placeholder` | 未接入 |
+| 对抗区中层放置 | `PlaceMiddleLayerPlaceholder` | 未接入 |
 | KFS map 转换 | 暂无 BT 节点 | 未知节点等待接口确认 |
-| 密林图规划 | 暂无 BT 节点 | 未知节点等待接口确认 |
+| 树林方块图规划 | 暂无 BT 节点 | 未知节点等待接口确认 |
 | 规则检查 | 暂无 BT 节点 | 未知节点等待接口确认 |
 | 吸盘反馈闭环 | 暂无 BT 节点 | 未知节点等待接口确认 |
 | 九宫格识别和选格策略 | 暂无 BT 节点 | 未知节点等待接口确认 |
@@ -218,7 +233,7 @@
 
 - 内含复杂视觉逻辑的 BT 节点。
 - 内含机械臂轨迹细节的 BT 节点。
-- 内含梅林搜索/规则判断的大型 BT 节点。
+- 内含树林方块搜索/规则判断的大型 BT 节点。
 - 第二套行为树框架。
 
 ## 后续调研检查清单
