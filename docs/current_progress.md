@@ -4,53 +4,25 @@ Date: 2026-07-05
 
 ## Goal
 
-Create an independent ROS 2 / BehaviorTree.CPP package in `26RC_R2_behavior` for ROBOCON 2026 R2. The package should be runnable on its own, while PB2025 is only used as a source-layout and node-interface reference.
+Create the ROBOCON 2026 R2 behavior tree content in `26RC_R2_behavior`, including the ROS 2 / BehaviorTree.CPP runner, XML task flow, launch files, params, plugin nodes, and integration records.
 
-The package is intentionally structured after PB2025's behavior package pattern: server/client executables, launch files, params, XML behavior trees, and small plugin nodes. PB2025 remains a reference only; `r2_behavior` owns its runtime and does not depend on `pb2025_sentry_behavior`.
+The package is intentionally structured after PB2025's behavior package pattern: server/client executables, launch files, params, XML behavior trees, and small plugin nodes.
 
-## Source Material Included
+## PB2025 Structure Followed
 
-Sakiko/R2 material read for requirements:
+PB2025 files and patterns followed while writing this R2 behavior tree:
 
-- `sakiko/md/r2_behavior_tree_design.md`
-- `sakiko/md/r2_target_behavior_tree_plan.md`
-- `sakiko/md/r2_future_behavior_tree_node_reference_zh.md`
-- `sakiko/rc26_nav_test-main/R2_WORKFLOW.md`
-- `sakiko/rc26_nav_test-main/R2_NAVIGATION_DESIGN.md`
-- `sakiko/rc26_nav_test-main/src/rc2026_navigation/README.md`
-- `sakiko/rc26_nav_test-main/src/rc2026_navigation/rc2026_navigation/outside_nav_controller.py`
-- `sakiko/rc26_nav_test-main/src/r2_suction_control/src/r2_suction_control.cpp`
+- Package metadata and build layout: `package.xml`, `CMakeLists.txt`.
+- Runner shape: behavior server, behavior client, launch, params.
+- Plugin shape: small BehaviorTree.CPP action/condition nodes.
+- XML organization: main tree plus reusable subtrees.
+- General node style: `IsManualStart`, `PubNav2Goal`, `PublishTwist` style wrappers.
 
-PB2025 files used only as implementation references:
-
-- `pb2025_sentry_behavior/package.xml`
-- `pb2025_sentry_behavior/CMakeLists.txt`
-- `pb2025_sentry_behavior/src/pb2025_sentry_behavior_server.cpp`
-- `pb2025_sentry_behavior/src/pb2025_sentry_behavior_client.cpp`
-- `pb2025_sentry_behavior/launch/pb2025_sentry_behavior_launch.py`
-- `pb2025_sentry_behavior/params/sentry_behavior.yaml`
-- `pb2025_sentry_behavior/plugins/action/pub_nav2_goal.cpp`
-- `pb2025_sentry_behavior/plugins/action/pub_twist.cpp`
-- `pb2025_sentry_behavior/plugins/condition/is_manual_start.cpp`
-
-## Source Material Not Included Yet
-
-- `sakiko/md/r2_bt_and_env_grill_plan.md`
-- `sakiko/md/r2_bt_and_env_grill_plan_zh.md`
-- `sakiko/md/robocon_wulin_rules_v6.pdf`
-- `sakiko/rc26_nav_test-main/Appendix V1.1.pdf`
-- `sakiko/rc26_nav_test-main/第二十五届全国大学生机器人大赛ROBOCON_u201C武林探秘_u201D竞技赛规则V6.pdf`
-- `sakiko/rc26_nav_test-main/R2_GENERAL_NAVIGATION_PACKAGE_PROMPT.md`
-- `sakiko/rc26_nav_test-main/R2_OUTSIDE_NAVIGATION_DESIGN.md`
-- `sakiko/rc26_nav_test-main/README.md`
-
-Reason: the markdown and source files above were enough for the first independent runtime and BT skeleton. The PDFs and remaining plans should be audited before real-match deployment.
-
-## Created Package
+## Current Scope
 
 Package name: `r2_behavior`
 
-Current strategy: independent R2 behavior package. It contains its own:
+Current behavior tree content contains:
 
 - `r2_behavior_server`
 - `r2_behavior_client`
@@ -60,8 +32,6 @@ Current strategy: independent R2 behavior package. It contains its own:
 - `PublishTwist`
 - R2 XML behavior trees
 - launch, params, tests, and documentation
-
-It no longer depends on `pb2025_sentry_behavior` at runtime.
 
 ## Current File Structure
 
@@ -188,7 +158,7 @@ Unknown nodes are intentionally kept outside the BT package until their ROS inte
 
 ## Verified
 
-- Independent runtime layout test passes: `python test/test_independent_runtime_layout.py`.
+- Runtime layout test passes: `python test/test_independent_runtime_layout.py`.
 - XML parse checks pass for current behavior trees.
 - `colcon build` passes with build/install/log kept under `26RC_R2_behavior`.
 - Dry-run server loads `R2_DryRun_WithMocks`; the test run was stopped by `timeout` after confirming the tree loaded and ticked.

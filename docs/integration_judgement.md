@@ -4,24 +4,23 @@
 
 ## 当前判断
 
-`26RC_R2_behavior` 应是 R2 独立行为树包，而不是只保存 XML 的资源包。
+`26RC_R2_behavior` 是 R2 行为树内容包，而不是只保存 XML 的资源包。
 
 当前策略：
 
-1. PB2025 只作为模板参考，不作为运行依赖。
+1. 按 PB2025 行为树工程结构编写。
 2. R2 包内维护自己的最小 BT 运行器和当前必需节点。
-3. 不复制 PB2025 的裁判系统、自瞄、云台、RFID 等 R2 当前不用的插件。
-4. 能用已有 R2/Sakiko ROS topic/action/service 表达的能力，优先复用接口。
+3. R2 当前不用的裁判系统、自瞄、云台、RFID 等能力暂不进入主树。
+4. 能用已有 R2 ROS topic/action/service 表达的能力，优先复用接口。
 5. 只有确认没有可复用接口时，才新增最小 BT 节点。
 6. 感知、规划、机械臂控制细节不塞进行为树节点；行为树只编排任务级接口。
 
 结构判断：
 
 - 当前包按 PB2025 行为树工程结构制作，包括 `server/client`、`launch`、`params`、`behavior_trees`、`plugins`、`include`、`docs`、`test`。
-- PB2025 是结构和接口风格参考，不是运行依赖。
 - 当前 R2 运行器、XML、参数和插件节点均保存在 `26RC_R2_behavior` 内。
 
-## 已实现独立内容
+## 已实现行为树内容
 
 ### R2 运行器
 
@@ -60,7 +59,7 @@
 
 当前行为树能实现：
 
-- 独立启动 R2 行为树 server。
+- 启动 R2 行为树 server。
 - 加载主树、dry-run 树或 full-flow 验证树。
 - 通过 `manual_start` 手动启动。
 - 通过 `NavigateToNamedPose` 调用命名航点导航 action。
@@ -145,7 +144,7 @@
 
 - `manual_start`：已接入。
 - `/r2/health/status`：建议由外部节点汇总健康状态。
-- `/r2/emergency_stop`：建议接成条件节点，同时保留底层独立急停链路。
+- `/r2/emergency_stop`：建议接成条件节点，同时保留底层急停链路。
 
 ### 3. 吸盘
 
@@ -205,7 +204,7 @@
 新增代码前必须先回答：
 
 1. R2 现有节点是否已经能做？
-2. Sakiko/现有 R2 包是否已有 topic/action/service 能直接复用？
+2. 现有 R2 包是否已有 topic/action/service 能直接复用？
 3. 能否把能力做成外部任务级 action/service，而不是 BT 节点？
 4. 如果必须新增 BT 节点，是否能做到通用、极小、无业务细节？
 
@@ -230,5 +229,5 @@
 - [ ] 确认 KFS tracker 输出是否能稳定映射到 1-12 号方块。
 - [ ] 确认端头识别与 KFS 识别是否共用相机/模型。
 - [ ] 确认 MoveIt2 是否已有可复用的命名位姿或 action server。
-- [ ] 确认实车急停链路是否独立于行为树。
+- [ ] 确认实车底层急停链路是否完整有效。
 - [ ] 确认规则 PDF 是否有更新版或裁判 FAQ。
