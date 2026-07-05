@@ -23,6 +23,8 @@ private:
   rclcpp::TimerBase::SharedPtr timer_;
   bool auto_start_{false};
   int start_value_{1};
+  int auto_start_repeat_count_{1};
+  int auto_start_publish_count_{0};
 };
 
 }  // namespace r2_behavior

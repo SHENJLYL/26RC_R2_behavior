@@ -1,12 +1,13 @@
 r2_behavior_server:
   ros__parameters:
-    use_sim_time: true
-    target_tree: R2_Competition_Main
-    tick_frequency: 5.0
+    use_sim_time: false
+    target_tree: R2_Full_Flow_Verification
+    tick_frequency: 2.0
 
 r2_behavior_client:
   ros__parameters:
-    use_sim_time: true
+    use_sim_time: false
     auto_start: true
     start_value: 1
+    auto_start_delay_ms: 500
     auto_start_repeat_count: 20

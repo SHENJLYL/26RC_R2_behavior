@@ -1,0 +1,88 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<root BTCPP_format="4">
+
+  <BehaviorTree ID="Flow_StopAllMotion">
+    <Sequence>
+      <PublishTwist topic_name="cmd_vel"
+                    duration="0"
+                    v_x="0.0"
+                    v_y="0.0"
+                    v_yaw="0.0"/>
+    </Sequence>
+  </BehaviorTree>
+
+  <BehaviorTree ID="Flow_PreMatchAndStart">
+    <Sequence>
+      <AlwaysSuccess name="PreMatchSelfCheckMock"/>
+      <IsManualStart key_port="{@manual_start}"
+                     start_value="1"/>
+    </Sequence>
+  </BehaviorTree>
+
+  <BehaviorTree ID="Flow_MC_AssembleWeapon">
+    <Sequence>
+      <AlwaysSuccess name="NavigateToSpearheadRackMock"/>
+      <AlwaysSuccess name="DetectAndPickSpearheadMock"/>
+      <AlwaysSuccess name="NavigateToAssemblyPoseMock"/>
+      <AlwaysSuccess name="AssembleWeaponMock"/>
+    </Sequence>
+  </BehaviorTree>
+
+  <BehaviorTree ID="Flow_WaitForR1BeforeR2LeavesMC">
+    <Sequence>
+      <SubTree ID="Flow_StopAllMotion"/>
+      <AlwaysSuccess name="WaitUntilR1FullyEnteredMFMock"/>
+    </Sequence>
+  </BehaviorTree>
+
+  <BehaviorTree ID="Flow_MF_CollectSingleR2KFS">
+    <Sequence>
+      <AlwaysSuccess name="NavigateToForestEntryMock"/>
+      <AlwaysSuccess name="EnterForestMock"/>
+      <AlwaysSuccess name="TrackAndSelectKFSMock"/>
+      <AlwaysSuccess name="NavigateToWoodsBlockMock"/>
+      <AlwaysSuccess name="PickAdjacentKFSMock"/>
+    </Sequence>
+  </BehaviorTree>
+
+  <BehaviorTree ID="Flow_MF_ExitForest">
+    <Sequence>
+      <AlwaysSuccess name="PlanExitViaBlock10_11_12Mock"/>
+      <AlwaysSuccess name="FollowForestExitPathMock"/>
+      <AlwaysSuccess name="ExitForestMock"/>
+    </Sequence>
+  </BehaviorTree>
+
+  <BehaviorTree ID="Flow_Battlefield_PlaceMiddleLayer">
+    <Sequence>
+      <AlwaysSuccess name="NavigateToBattlefieldMock"/>
+      <AlwaysSuccess name="ReadGridStateMock"/>
+      <AlwaysSuccess name="SelectMiddleLayerCellMock"/>
+      <AlwaysSuccess name="PlaceKFSMiddleLayerMock"/>
+    </Sequence>
+  </BehaviorTree>
+
+  <BehaviorTree ID="R2_Full_Flow_Verification">
+    <ReactiveFallback name="R2FlowVerificationRoot">
+      <Sequence name="EmergencyStopBranchMockedInactive">
+        <AlwaysFailure name="IsEmergencyStopRequestedMock"/>
+        <SubTree ID="Flow_StopAllMotion"/>
+      </Sequence>
+
+      <Sequence name="RetryRecoveryBranchMockedInactive">
+        <AlwaysFailure name="IsRetryRequestedMock"/>
+        <AlwaysSuccess name="ExecuteAreaAwareRetryMock"/>
+      </Sequence>
+
+      <Sequence name="CompetitionMissionFlow">
+        <SubTree ID="Flow_PreMatchAndStart"/>
+        <SubTree ID="Flow_MC_AssembleWeapon"/>
+        <SubTree ID="Flow_WaitForR1BeforeR2LeavesMC"/>
+        <SubTree ID="Flow_MF_CollectSingleR2KFS"/>
+        <SubTree ID="Flow_MF_ExitForest"/>
+        <SubTree ID="Flow_Battlefield_PlaceMiddleLayer"/>
+        <SubTree ID="Flow_StopAllMotion"/>
+      </Sequence>
+    </ReactiveFallback>
+  </BehaviorTree>
+</root>
