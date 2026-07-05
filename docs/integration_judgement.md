@@ -1,6 +1,6 @@
 # R2 行为树接入判断记录
 
-日期：2026-06-30
+日期：2026-07-05
 
 ## 当前判断
 
@@ -15,6 +15,12 @@
 5. 只有确认没有可复用接口时，才新增最小 BT 节点。
 6. 感知、规划、机械臂控制细节不塞进行为树节点；行为树只编排任务级接口。
 
+结构判断：
+
+- 当前包按 PB2025 行为树工程结构制作，包括 `server/client`、`launch`、`params`、`behavior_trees`、`plugins`、`include`、`docs`、`test`。
+- PB2025 是结构和接口风格参考，不是运行依赖。
+- 当前 R2 运行器、XML、参数和插件节点均保存在 `26RC_R2_behavior` 内。
+
 ## 已实现独立内容
 
 ### R2 运行器
@@ -26,12 +32,15 @@
   - 按 `tick_frequency` 周期 tick 指定 `target_tree`。
 - `r2_behavior_client`
   - 默认空闲，不自动发车。
-  - 设置 `auto_start:=true` 时可发布一次 `manual_start`。
+  - 设置 `auto_start:=true` 时可重复发布 `manual_start`，用于避免启动 race condition。
 
 ### R2 BT 节点
 
 - `IsManualStart`
   - 通过 `manual_start` `std_msgs/msg/Int32` 启动流程。
+- `NavigateToNamedPose`
+  - 调用 `/r2/navigation/navigate_to_named_pose` action。
+  - 用于把行为树中的命名航点交给外部 R2 导航系统处理。
 - `PubNav2Goal`
   - 向 `goal_pose` 发布 `geometry_msgs/msg/PoseStamped`。
   - 当前 `frame_id` 固定为 `map`。
@@ -52,10 +61,12 @@
 当前行为树能实现：
 
 - 独立启动 R2 行为树 server。
-- 加载主树或 dry-run 树。
+- 加载主树、dry-run 树或 full-flow 验证树。
 - 通过 `manual_start` 手动启动。
+- 通过 `NavigateToNamedPose` 调用命名航点导航 action。
 - 发布导航目标占位点到 `goal_pose`。
 - 发布零速度到 `cmd_vel`。
+- 使用 `R2_Full_Flow_Verification` 验证完整比赛流程顺序。
 - 用 `AlwaysFailure` 阻断未接入能力，避免实车误跑完整任务。
 
 当前行为树不能直接完成：
@@ -69,6 +80,47 @@
 - 相邻 KFS 抓取。
 - 吸盘命令和 payload 反馈闭环。
 - 九宫格识别和中层放置。
+
+## 当前文件结构状态
+
+```text
+26RC_R2_behavior/
+├── behavior_trees/
+│   ├── r2_competition_main.xml
+│   ├── r2_dry_run_with_mocks.xml
+│   └── r2_full_flow_verification.xml
+├── include/r2_behavior/
+├── plugins/
+│   ├── action/
+│   └── condition/
+├── src/
+├── launch/
+├── params/
+├── docs/
+├── test/
+├── CMakeLists.txt
+├── package.xml
+└── README.md
+```
+
+## 未接入节点 / 目前未知节点
+
+| 任务能力 | 当前处理方式 | 接入状态 |
+|---|---|---|
+| 健康检查 | `PreMatchSelfCheckPlaceholder` | 未接入 |
+| 急停判断 | `IsEmergencyStopRequestedPlaceholder` | 未接入 |
+| 重试恢复 | `IsRetryRequestedPlaceholder`、`ExecuteAreaAwareRetryPlaceholder` | 未接入 |
+| 矛头识别与夹取 | `DetectAndPickSpearheadPlaceholder` | 未接入 |
+| 武器装配 | `AssembleWeaponPlaceholder` | 未接入 |
+| R1 进入密林判断 | `WaitUntilR1FullyEnteredMFPlaceholder` | 未接入 |
+| 密林取 KFS | `CollectSingleR2KFSPlaceholder` | 未接入 |
+| 退出密林 | `ExitForestViaBlock10_11_12Placeholder` | 未接入 |
+| 战场中层放置 | `PlaceMiddleLayerPlaceholder` | 未接入 |
+| KFS map 转换 | 暂无 BT 节点 | 未知节点等待接口确认 |
+| 密林图规划 | 暂无 BT 节点 | 未知节点等待接口确认 |
+| 规则检查 | 暂无 BT 节点 | 未知节点等待接口确认 |
+| 吸盘反馈闭环 | 暂无 BT 节点 | 未知节点等待接口确认 |
+| 九宫格识别和选格策略 | 暂无 BT 节点 | 未知节点等待接口确认 |
 
 ## 后续接入优先级
 
