@@ -50,6 +50,11 @@
 │   ├── current_progress.md
 │   ├── important_files_line_notes.md
 │   └── integration_judgement.md
+├── action preparation/
+│   ├── README.md
+│   ├── r2_action_interface_catalog.md
+│   ├── r2_sensor_observation_requirements.md
+│   └── r2_behavior_action_sequence.md
 ├── test/
 ├── CMakeLists.txt
 ├── package.xml
@@ -101,6 +106,18 @@
 - `Sequence`
 - `ReactiveFallback`
 - `SubTree`
+
+## Action Preparation
+
+`action preparation/` 记录后续实车接入需要的任务级 action、service、topic 和传感器观测需求。
+
+这些内容用于指导后续把未接入节点替换为真实接口：
+
+- `r2_action_interface_catalog.md`：归纳建议 action/service/topic，包括输入、读取信息、输出命令、结果和行为树用法。
+- `r2_sensor_observation_requirements.md`：归纳底盘抬升、红外高度、激光雷达、深度相机、夹爪、吸盘、R1 二维码和 KFS map 的观测需求。
+- `r2_behavior_action_sequence.md`：按当前主树流程说明每个 placeholder 后续应接入的任务接口。
+
+该目录只做接口准备和调研归档，不表示这些 action 已经全部实现。
 
 ## 当前文件状态
 

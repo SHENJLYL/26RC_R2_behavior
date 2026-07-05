@@ -81,6 +81,11 @@ Current behavior tree content contains:
 │   ├── current_progress.md
 │   ├── important_files_line_notes.md
 │   └── integration_judgement.md
+├── action preparation/
+│   ├── README.md
+│   ├── r2_action_interface_catalog.md
+│   ├── r2_sensor_observation_requirements.md
+│   └── r2_behavior_action_sequence.md
 ├── test/
 ├── CMakeLists.txt
 ├── package.xml
@@ -162,6 +167,19 @@ BehaviorTree.CPP built-ins still used:
 | Middle-layer place | `/r2/manipulation/place_kfs_middle` |
 
 Unknown nodes are intentionally kept outside the BT package until their ROS interfaces are confirmed. Candidate examples include KFS map conversion, forest graph planner, rule guard, suction feedback, grid-state perception, target-cell strategy, and manipulation task servers.
+
+## Action Preparation Archive
+
+`action preparation/` has been added as the interface-preparation archive for future R2 task integration.
+
+It records:
+
+- Task-level action/service/topic candidates.
+- Required sensor observations and state topics.
+- Mapping from current behavior-tree placeholders to future real interfaces.
+- Rule-derived constraints for payload, KFS handling, forest traversal, R1 QR state, and middle-layer placement.
+
+These documents are preparation records only; they do not mean the listed actions have already been implemented.
 
 ## Known Gaps
 
