@@ -22,6 +22,7 @@
 26RC_R2_behavior/
 ├── behavior_trees/
 │   ├── r2_competition_main.xml
+│   ├── r2_no_tip_competition_draft.xml
 │   ├── r2_dry_run_with_mocks.xml
 │   └── r2_full_flow_verification.xml
 ├── include/r2_behavior/
@@ -49,7 +50,8 @@
 ├── docs/
 │   ├── current_progress.md
 │   ├── important_files_line_notes.md
-│   └── integration_judgement.md
+│   ├── integration_judgement.md
+│   └── r2_no_tip_behavior_tree_design.md
 ├── action preparation/
 │   ├── README.md
 │   ├── r2_action_interface_catalog.md
@@ -128,6 +130,7 @@
 | `src/r2_behavior_server.cpp` | 已接入，负责加载 XML、注册 BT 节点、周期 tick 行为树 |
 | `src/r2_behavior_client.cpp` | 已接入，支持手动启动和自动重复发布 `/manual_start` |
 | `behavior_trees/r2_competition_main.xml` | 已建立正式比赛骨架，未接入任务处保留失败占位 |
+| `behavior_trees/r2_no_tip_competition_draft.xml` | 新增跳过端头任务的行为树草稿，用于后续封装接口，不是当前可直接运行主树 |
 | `behavior_trees/r2_full_flow_verification.xml` | 已建立流程验证树，未接入任务使用 mock 成功节点以验证整体顺序 |
 | `behavior_trees/r2_dry_run_with_mocks.xml` | 已建立最小烟测树，用于验证加载和基础 topic 发布 |
 | `IsManualStart` | 已接入，读取 `/manual_start` |
@@ -220,6 +223,21 @@ Flow_PreMatchAndStart
 ```
 
 该树中的未接入能力使用 `AlwaysSuccess` mock，适合验证“流程能否走到底”；正式比赛主树仍然使用失败占位保护实车。
+
+### `R2_NoTip_Competition_Main`
+
+跳过端头任务的后续主树草稿：
+
+```text
+NoTip_PreMatchAndStart
+-> NoTip_MoveToMFBoundaryAndWait
+-> NoTip_EnterMFWithRecovery
+-> NoTip_ForestPlanAndExecute
+-> NoTip_BattlefieldGridPlacement
+-> StopAllMotion
+```
+
+该树记录新的比赛策略：不执行端头夹取和兵器组装，改为等待满足进入梅林条件后执行树林 KFS 规划、移动、地图维护和对抗区放置。当前除 `IsManualStart`、`NavigateToNamedPose`、`PublishTwist` 外，大多数节点仍是待封装接口，详见 `docs/r2_no_tip_behavior_tree_design.md`。
 
 ## 构建
 
