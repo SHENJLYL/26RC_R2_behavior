@@ -1,55 +1,46 @@
 # RC R2 Behavior Tree Current Progress
 
-Date: 2026-07-05
+Date: 2026-07-06
 
 ## Goal
 
 Create the ROBOCON 2026 R2 behavior tree content in `26RC_R2_behavior`, including the ROS 2 / BehaviorTree.CPP runner, XML task flow, launch files, params, plugin nodes, and integration records.
 
-The package is intentionally structured after PB2025's behavior package pattern: server/client executables, launch files, params, XML behavior trees, and small plugin nodes.
+The package follows the PB2025 behavior package pattern: server/client executables, launch files, params, XML behavior trees, and small plugin nodes.
 
-## PB2025 Structure Followed
+## Current Strategy
 
-PB2025 files and patterns followed while writing this R2 behavior tree:
+The current R2 mission is a no-tip flow:
 
-- Package metadata and build layout: `package.xml`, `CMakeLists.txt`.
-- Runner shape: behavior server, behavior client, launch, params.
-- Plugin shape: small BehaviorTree.CPP action/condition nodes.
-- XML organization: main tree plus reusable subtrees.
-- General node style: `IsManualStart`, `PubNav2Goal`, `PublishTwist` style wrappers.
+```text
+Start
+-> move to MC/MF boundary
+-> wait 120 seconds or R1 ArUco continue instruction
+-> move to forest entry in front of block 2
+-> use web KFS map and forest planner
+-> execute forest steps with arm-camera validation and camera-based R1 KFS removal checks
+-> record removed R2 KFS blocks in map_state
+-> exit MF via block 10/11/12
+-> navigate to battlefield grid standoff
+-> wait for R1 manual alignment ArUco
+-> climb onto R1
+-> place KFS on grid layer 2 or layer 3 according to ArUco code
+```
+
+The tip pickup and weapon assembly task is intentionally out of the current main flow.
 
 ## Competition Terminology
 
-Terminology follows the rule PDF:
-
 | Term | Meaning |
 |---|---|
-| `武馆(MC)` | Zone 1; start, retry, and weapon assembly area |
+| `武馆(MC)` | Zone 1; R2 starts and waits before MF entry |
 | `梅林(MF)` | Zone 2; includes the forest, R1 passage, R2 entrance, and R2 exit |
 | `树林` | The 12 numbered blocks inside MF; R2 operates here |
 | `对抗区` | Zone 3; includes ramp, nine-grid rack, and retry zone |
-| `端头` | Official V6 term for the weapon tip part |
-| `端头架(SHR)` | Rack in MC that holds the end pieces |
-| `兵器` | Assembled weapon consisting of long pole, end piece, and quick connector |
+| `端头` | Official term for the weapon tip; not executed in the current no-tip flow |
 | `KFS` | Kung Fu Scroll; includes R1 KFS, R2 KFS, and fake KFS |
+| `R1 ArUco` | R1-displayed ArUco instruction code |
 | `九宫格` | 3x3 rack in the battlefield area, with bottom/middle/top layers |
-
-Legacy code identifiers such as `spearhead_rack_standoff` are kept as interface names for now; human-facing descriptions use `端头` and `端头架`.
-
-## Current Scope
-
-Package name: `r2_behavior`
-
-Current behavior tree content contains:
-
-- `r2_behavior_server`
-- `r2_behavior_client`
-- `IsManualStart`
-- `NavigateToNamedPose`
-- `PubNav2Goal`
-- `PublishTwist`
-- R2 XML behavior trees
-- launch, params, tests, and documentation
 
 ## Current File Structure
 
@@ -57,157 +48,94 @@ Current behavior tree content contains:
 26RC_R2_behavior/
 ├── behavior_trees/
 │   ├── r2_competition_main.xml
+│   ├── r2_no_tip_competition_draft.xml
 │   ├── r2_dry_run_with_mocks.xml
 │   └── r2_full_flow_verification.xml
 ├── include/r2_behavior/
 ├── plugins/
-│   ├── action/
-│   │   ├── navigate_to_named_pose.cpp
-│   │   ├── pub_nav2_goal.cpp
-│   │   └── pub_twist.cpp
-│   └── condition/
-│       └── is_manual_start.cpp
 ├── src/
-│   ├── r2_behavior_client.cpp
-│   └── r2_behavior_server.cpp
 ├── launch/
-│   └── r2_behavior_launch.py
 ├── params/
-│   ├── r2_behavior.yaml
-│   ├── r2_behavior_competition_auto_start.yaml
-│   ├── r2_behavior_dry_run.yaml
-│   └── r2_behavior_full_flow_verification.yaml
 ├── docs/
 │   ├── current_progress.md
 │   ├── important_files_line_notes.md
-│   └── integration_judgement.md
+│   ├── integration_judgement.md
+│   └── r2_no_tip_behavior_tree_design.md
 ├── action preparation/
 │   ├── README.md
 │   ├── r2_action_interface_catalog.md
 │   ├── r2_sensor_observation_requirements.md
 │   └── r2_behavior_action_sequence.md
-├── test/
-├── CMakeLists.txt
-├── package.xml
-└── README.md
+└── test/
 ```
 
 ## Behavior Trees
 
-### `R2_Competition_Main`
-
-```text
-PreMatchAndStart
--> MC_AssembleWeapon
--> WaitForR1BeforeR2LeavesMC
--> MF_CollectSingleR2KFS
--> MF_ExitForest
--> Battlefield_PlaceMiddleLayer
--> StopAllMotion
-```
-
-Emergency stop and retry branches are present but still use placeholders until the real wired/safety/retry interfaces are defined.
-
-### `R2_DryRun_WithMocks`
-
-Smoke-test tree that exercises:
-
-- `PubNav2Goal` on `goal_pose`
-- `PublishTwist` on `cmd_vel`
-
-Use this to test tree loading and topic publishing without claiming the full robot task is connected.
-
-### `R2_Full_Flow_Verification`
-
-Full process verification tree that replaces unavailable navigation/manipulation/perception capabilities with `AlwaysSuccess` mocks. It is used to verify that the competition flow can proceed in order without depending on Gazebo, Nav2, vision, or manipulation.
+| Tree | Status |
+|---|---|
+| `R2_Competition_Main` | Current no-tip safe main skeleton. Unknown nodes use `AlwaysFailure` placeholders. |
+| `R2_NoTip_Competition_Main` | Detailed no-tip draft with interface comments. Do not run as mission tree until wrappers exist. |
+| `R2_Full_Flow_Verification` | Mocked no-tip flow verification using `AlwaysSuccess` placeholders. |
+| `R2_DryRun_WithMocks` | Minimal server/topic smoke test. |
 
 ## Current Nodes
 
 | Node | Implemented in | Interface |
 |---|---|---|
-| `IsManualStart` | `plugins/condition/is_manual_start.cpp` | subscribes `manual_start` `std_msgs/msg/Int32` through `r2_behavior_server` |
+| `IsManualStart` | `plugins/condition/is_manual_start.cpp` | subscribes `/manual_start` `std_msgs/msg/Int32` |
 | `NavigateToNamedPose` | `plugins/action/navigate_to_named_pose.cpp` | calls `/r2/navigation/navigate_to_named_pose` action |
-| `PubNav2Goal` | `plugins/action/pub_nav2_goal.cpp` | publishes `geometry_msgs/msg/PoseStamped`, default topic `goal_pose`, fixed frame `map` |
+| `PubNav2Goal` | `plugins/action/pub_nav2_goal.cpp` | publishes `geometry_msgs/msg/PoseStamped`, default topic `goal_pose` |
 | `PublishTwist` | `plugins/action/pub_twist.cpp` | publishes `geometry_msgs/msg/Twist`, default topic `cmd_vel` |
-
-BehaviorTree.CPP built-ins still used:
-
-- `AlwaysSuccess`
-- `AlwaysFailure`
-- `Sequence`
-- `ReactiveFallback`
-- `SubTree`
 
 ## Real Interfaces Connected Now
 
 | Capability | Interface | Status |
 |---|---|---|
-| Manual start | `manual_start` `std_msgs/msg/Int32` | Connected |
-| Named-pose navigation | `/r2/navigation/navigate_to_named_pose` | Connected at BT action-client level; navigation server and waypoint quality must still be validated separately |
-| Outside navigation goal topic | `goal_pose` `geometry_msgs/msg/PoseStamped` | Connected with placeholder coordinates |
-| Stop chassis | `cmd_vel` `geometry_msgs/msg/Twist` | Connected for zero-speed publish |
+| Manual start | `/manual_start` | Connected |
+| Named-pose navigation | `/r2/navigation/navigate_to_named_pose` | BT action client connected; external server and waypoints must be validated separately |
+| Outside navigation goal topic | `goal_pose` | Connected for debug/simple goals |
+| Stop chassis | `cmd_vel` | Connected for zero-speed publish |
 
-## Not Connected / Unknown Nodes Waiting For Integration
+## Not Connected / Waiting For Integration
 
-| Capability | Placeholder node/interface |
+| Capability | Required interface direction |
 |---|---|
-| Health monitor | `/r2/health/status` |
-| Emergency stop input | `/r2/emergency_stop` |
-| Retry handling | `/r2/retry/request`, `/r2/retry/execute` |
-| Spearhead detection/pick | `/r2/manipulation/pick_tip` |
-| R1 assembly readiness | `/r2/perception/r1_assembly_ready` |
-| R1 entered MF | `/r2/perception/r1_entered_mf` |
-| Forest entry/exit primitives | `/r2/forest/enter`, `/r2/forest/exit` |
-| KFS block map | `/kfs_tracker/detection -> /r2/perception/kfs_map` |
-| Forest graph planner | `/r2/forest/planner` |
-| Woods graph navigation | `/r2/nav/go_to_woods_block`, `/r2/nav/follow_woods_graph_path` |
+| Health check | `/r2/health/check_start_ready` |
+| Emergency stop | `/r2/safety/emergency_stop_state` |
+| Retry recovery | `/r2/retry/request`, `/r2/retry/execute_area_aware_retry` |
+| 120-second match wait | `/r2/match/elapsed_time` or BT timing wrapper |
+| R1 ArUco instruction | `r2/perception/read_aruco`, `/r2/perception/r1_aruco_state` |
+| Manual KFS map | `/kfs_locator/state` -> `/r2/perception/kfs_map` |
+| Forest route planning | `router_planner` -> `/r2/forest/request_plan` |
+| Forest map state | `/r2/forest/map_state`, `/r2/forest/update_map_state` |
+| KFS block validation | `/r2/perception/validate_kfs_on_block`, using arm depth camera |
+| R1 KFS removal check | `/r2/forest/check_r1_kfs_removed`, using camera |
+| Travel mode and lift confirmation | `/r2/chassis/set_travel_mode`, wheel IR, screw feedback, LiDAR |
+| Forest step execution | `/r2/forest/execute_forest_plan`, `/r2/forest/step_to_adjacent_block` |
 | Adjacent KFS pick | `/r2/manipulation/pick_adjacent_kfs` |
-| Suction command and payload state | `/cmd_suction_suck`, `/r2/perception/payload_state` |
-| Grid state and target cell | `/r2/perception/grid_state`, `/r2/strategy/select_grid_cell` |
-| Middle-layer place | `/r2/manipulation/place_kfs_middle` |
-
-Unknown nodes are intentionally kept outside the BT package until their ROS interfaces are confirmed. Candidate examples include KFS map conversion, forest graph planner, rule guard, suction feedback, grid-state perception, target-cell strategy, and manipulation task servers.
-
-## Action Preparation Archive
-
-`action preparation/` has been added as the interface-preparation archive for future R2 task integration.
-
-It records:
-
-- Task-level action/service/topic candidates.
-- Required sensor observations and state topics.
-- Mapping from current behavior-tree placeholders to future real interfaces.
-- Rule-derived constraints for payload, KFS handling, forest traversal, R1 QR state, and middle-layer placement.
-
-These documents are preparation records only; they do not mean the listed actions have already been implemented.
+| Payload feedback | `/r2/perception/payload_state`, `/r2/manipulation/suction_state` |
+| Grid align and placement | `/r2/motion/align_to_r1`, `/r2/motion/place_kfs_on_grid` |
 
 ## Known Gaps
 
-- Waypoints are still `0.0;0.0;0.0`.
-- `PubNav2Goal` currently uses `frame_id="map"`; verify against real navigation.
-- `NavigateToNamedPose` can call the action, but actual navigation success depends on the external `r2nav` server, calibrated waypoints, localization, and chassis behavior.
-- Suction has command topic but no feedback loop.
-- KFS tracker output is not yet converted into a block-indexed map.
-- MoveIt2 task-level actions are not wrapped yet.
-- Forest graph traversal and rule guard are not implemented.
-- Rule PDFs need a later audit before real competition use.
+- Main no-tip tree is a safe skeleton; most task nodes are placeholders.
+- Waypoints `mc_mf_boundary_standoff`, `forest_entry_block_2_standoff`, and `battlefield_grid_standoff` must be calibrated.
+- `router_planner` currently uses `topic1 -> topic2`; a service/action wrapper is still needed.
+- `KFS-Tracker` publishes detections but is not yet wrapped into block-indexed validation service.
+- `PlaceKFS.action` currently lacks an explicit layer-3 mode.
+- `AlignToR1` is referenced by documentation but the action file is not present yet.
 
 ## Verified
 
-- Runtime layout test passes: `python test/test_independent_runtime_layout.py`.
-- XML parse checks pass for current behavior trees.
-- `colcon build` passes with build/install/log kept under `26RC_R2_behavior`.
-- Dry-run server loads `R2_DryRun_WithMocks`; the test run was stopped by `timeout` after confirming the tree loaded and ticked.
-- `R2_Full_Flow_Verification` was launched and returned BT `SUCCESS`; rosbag captured `/manual_start` and `/cmd_vel`, confirming the flow-verification tree can proceed through the mocked process.
+- Runtime layout test: `python3 test/test_independent_runtime_layout.py`.
+- XML parse checks have been run for edited behavior trees.
+- Dry-run and full-flow verification remain intended as safe test paths; real task nodes still require external wrappers.
 
-## Minimal Next Debug Steps
+## Next Steps
 
-1. Source ROS and build this package.
-2. Launch `r2_behavior` with `r2_behavior_dry_run.yaml`.
-3. Confirm `goal_pose` and `cmd_vel` with `ros2 topic echo`.
-4. Replace waypoint placeholders with calibrated poses.
-5. Implement one real interface at a time, starting with health check, payload feedback, KFS map, and forest rule guard.
-
-## Follow-up Judgement Record
-
-See `docs/integration_judgement.md` for the current integration judgement, reuse policy, and future research checklist.
+1. Confirm and implement the topic/action/service contracts listed in `action preparation/r2_behavior_action_sequence.md`.
+2. Calibrate the three named waypoints.
+3. Wrap `web_spoiler` and `router_planner` into behavior-tree friendly service/action interfaces.
+4. Implement arm-camera KFS validation and camera-based R1 KFS removal checks.
+5. Implement `/r2/forest/map_state` so `removed_r2_blocks` is recorded in rosbag.
+6. Implement R1 ArUco-driven battlefield align, climb, and layer 2/3 placement.

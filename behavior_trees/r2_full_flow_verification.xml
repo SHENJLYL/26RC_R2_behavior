@@ -11,54 +11,55 @@
     </Sequence>
   </BehaviorTree>
 
-  <BehaviorTree ID="Flow_PreMatchAndStart">
+  <BehaviorTree ID="Flow_PreMatchAndStart_NoTip">
     <Sequence>
       <AlwaysSuccess name="PreMatchSelfCheckMock"/>
       <IsManualStart key_port="{@manual_start}"
                      start_value="1"/>
+      <AlwaysSuccess name="SkipTipPickupAndWeaponAssemblyMock"/>
     </Sequence>
   </BehaviorTree>
 
-  <BehaviorTree ID="Flow_MC_AssembleWeapon">
+  <BehaviorTree ID="Flow_MC_WaitAtMFBoundary">
     <Sequence>
-      <AlwaysSuccess name="NavigateToSpearheadRackMock"/>
-      <AlwaysSuccess name="DetectAndPickSpearheadMock"/>
-      <AlwaysSuccess name="NavigateToAssemblyPoseMock"/>
-      <AlwaysSuccess name="AssembleWeaponMock"/>
-    </Sequence>
-  </BehaviorTree>
-
-  <BehaviorTree ID="Flow_WaitForR1BeforeR2LeavesMC">
-    <Sequence>
+      <AlwaysSuccess name="NavigateToMC_MFBoundaryMock"/>
       <SubTree ID="Flow_StopAllMotion"/>
-      <AlwaysSuccess name="WaitUntilR1FullyEnteredMFMock"/>
+      <AlwaysSuccess name="Wait120SecOrReadArUcoContinueMock"/>
     </Sequence>
   </BehaviorTree>
 
-  <BehaviorTree ID="Flow_MF_CollectSingleR2KFS">
+  <BehaviorTree ID="Flow_MF_EnterForestEntry">
     <Sequence>
-      <AlwaysSuccess name="NavigateToForestEntryMock"/>
-      <AlwaysSuccess name="EnterForestMock"/>
-      <AlwaysSuccess name="TrackAndSelectKFSMock"/>
-      <AlwaysSuccess name="NavigateToWoodsBlockMock"/>
-      <AlwaysSuccess name="PickAdjacentKFSMock"/>
+      <AlwaysSuccess name="NavigateToForestEntryBlock2Mock"/>
+      <AlwaysSuccess name="SetTravelModeForestMock"/>
+      <AlwaysSuccess name="ConfirmLiftByScrewAndLidarMock"/>
     </Sequence>
   </BehaviorTree>
 
-  <BehaviorTree ID="Flow_MF_ExitForest">
+  <BehaviorTree ID="Flow_MF_ExecuteForestPlan">
     <Sequence>
-      <AlwaysSuccess name="PlanExitViaBlock10_11_12Mock"/>
-      <AlwaysSuccess name="FollowForestExitPathMock"/>
-      <AlwaysSuccess name="ExitForestMock"/>
+      <AlwaysSuccess name="WaitKFSLocatorStateMock"/>
+      <AlwaysSuccess name="RequestMeilinRouterPlanMock"/>
+      <AlwaysSuccess name="InitializeForestMapStateMock"/>
+      <AlwaysSuccess name="ValidateKFSOnBlockArmCameraMock"/>
+      <AlwaysSuccess name="WaitR1KFSRemovedByCameraIfNeededMock"/>
+      <AlwaysSuccess name="ExecuteForestStepsMock"/>
+      <AlwaysSuccess name="RecordRemovedR2KFSBlocksMock"/>
+      <AlwaysSuccess name="ExitForestViaBlock10_11_12Mock"/>
+      <AlwaysSuccess name="SetTravelModeGroundMock"/>
     </Sequence>
   </BehaviorTree>
 
-  <BehaviorTree ID="Flow_Battlefield_PlaceMiddleLayer">
+  <BehaviorTree ID="Flow_Battlefield_ClimbAndPlaceKFS">
     <Sequence>
-      <AlwaysSuccess name="NavigateToBattlefieldMock"/>
-      <AlwaysSuccess name="ReadGridStateMock"/>
-      <AlwaysSuccess name="SelectMiddleLayerCellMock"/>
-      <AlwaysSuccess name="PlaceKFSMiddleLayerMock"/>
+      <AlwaysSuccess name="NavigateToBattlefieldGridStandoffMock"/>
+      <SubTree ID="Flow_StopAllMotion"/>
+      <AlwaysSuccess name="ReadArUcoGridAlignReadyMock"/>
+      <AlwaysSuccess name="AlignToR1ForClimbMock"/>
+      <AlwaysSuccess name="UpStairsOntoR1Mock"/>
+      <AlwaysSuccess name="ReadArUcoLayerCodeMock"/>
+      <AlwaysSuccess name="PlaceKFSOnGridLayer2Or3Mock"/>
+      <AlwaysSuccess name="ConfirmPayloadNoneMock"/>
     </Sequence>
   </BehaviorTree>
 
@@ -74,13 +75,12 @@
         <AlwaysSuccess name="ExecuteAreaAwareRetryMock"/>
       </Sequence>
 
-      <Sequence name="CompetitionMissionFlow">
-        <SubTree ID="Flow_PreMatchAndStart"/>
-        <SubTree ID="Flow_MC_AssembleWeapon"/>
-        <SubTree ID="Flow_WaitForR1BeforeR2LeavesMC"/>
-        <SubTree ID="Flow_MF_CollectSingleR2KFS"/>
-        <SubTree ID="Flow_MF_ExitForest"/>
-        <SubTree ID="Flow_Battlefield_PlaceMiddleLayer"/>
+      <Sequence name="CompetitionMissionNoTipFlow">
+        <SubTree ID="Flow_PreMatchAndStart_NoTip"/>
+        <SubTree ID="Flow_MC_WaitAtMFBoundary"/>
+        <SubTree ID="Flow_MF_EnterForestEntry"/>
+        <SubTree ID="Flow_MF_ExecuteForestPlan"/>
+        <SubTree ID="Flow_Battlefield_ClimbAndPlaceKFS"/>
         <SubTree ID="Flow_StopAllMotion"/>
       </Sequence>
     </ReactiveFallback>

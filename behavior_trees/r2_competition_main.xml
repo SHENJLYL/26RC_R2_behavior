@@ -13,109 +13,137 @@
 
   <BehaviorTree ID="PreMatchAndStart">
     <Sequence>
-      <!-- TODO interface: /r2/health/status + TF + sensor freshness -->
+      <!-- TODO service/action: /r2/health/check_start_ready -->
       <AlwaysSuccess name="PreMatchSelfCheckPlaceholder"/>
       <IsManualStart key_port="{@manual_start}"
                      start_value="1"/>
+      <!-- Current strategy: do not execute tip pickup or weapon assembly. -->
+      <AlwaysSuccess name="SkipTipPickupAndWeaponAssemblyByStrategy"/>
     </Sequence>
   </BehaviorTree>
 
-  <BehaviorTree ID="MC_AssembleWeapon">
+  <BehaviorTree ID="MC_WaitAtMFBoundary">
     <Sequence>
-      <NavigateToNamedPose target="spearhead_rack_standoff"
-                           team_side="red"
-                           timeout_sec="45.0"/>
-
-      <!-- TODO interface: /r2/manipulation/pick_tip action -->
-      <AlwaysFailure name="DetectAndPickSpearheadPlaceholder"/>
-
-      <PubNav2Goal topic_name="goal_pose"
-                   goal="0.0;0.0;0.0"/>
-
-      <!-- TODO interfaces:
-           /r2/perception/r1_assembly_ready
-           /r2/rule_guard/no_body_contact
-           /r2/manipulation/assemble_tip_to_pole action
-           /r2/perception/weapon_assembled
-      -->
-      <AlwaysFailure name="AssembleWeaponPlaceholder"/>
-    </Sequence>
-  </BehaviorTree>
-
-  <BehaviorTree ID="WaitForR1BeforeR2LeavesMC">
-    <Sequence>
+      <RetryUntilSuccessful num_attempts="2">
+        <NavigateToNamedPose target="mc_mf_boundary_standoff"
+                             team_side="red"
+                             timeout_sec="45.0"/>
+      </RetryUntilSuccessful>
       <SubTree ID="StopAllMotion"/>
-      <!-- TODO interface: /r2/perception/r1_entered_mf, avoid wireless R1-R2 communication -->
-      <AlwaysFailure name="WaitUntilR1FullyEnteredMFPlaceholder"/>
+
+      <!-- TODO condition/action:
+           - match elapsed time reaches 120 seconds, or
+           - R1 ArUco instruction permits continuing to MF.
+      -->
+      <Fallback name="Wait120SecOrArUcoContinue">
+        <AlwaysFailure name="MatchElapsedReached120SecPlaceholder"/>
+        <AlwaysFailure name="ReadArUcoInstruction_ContinueToMF_Placeholder"/>
+      </Fallback>
     </Sequence>
   </BehaviorTree>
 
-  <BehaviorTree ID="MF_CollectSingleR2KFS">
-    <Sequence>
-      <PubNav2Goal topic_name="goal_pose"
-                   goal="0.0;0.0;0.0"/>
+  <BehaviorTree ID="MF_EnterForestEntry">
+    <Fallback name="EnterMFOrArUcoRecovery">
+      <Sequence name="NormalEnterMF">
+        <NavigateToNamedPose target="forest_entry_block_2_standoff"
+                             team_side="red"
+                             timeout_sec="60.0"/>
+        <!-- TODO action: /r2/chassis/set_travel_mode mode=FOREST -->
+        <AlwaysFailure name="SetTravelModeForestPlaceholder"/>
+        <!-- TODO service/topic check: screw turns/current + wheel IR + LiDAR -->
+        <AlwaysFailure name="ConfirmChassisLiftAndForestModePlaceholder"/>
+      </Sequence>
 
-      <!-- TODO interfaces:
-           /r2/forest/enter action
-           /kfs_tracker/detection -> /r2/perception/kfs_map
-           /r2/rule_guard/check_forest_plan
-           /r2/forest/planner
-           /r2/nav/go_to_woods_block action
-           /r2/manipulation/pick_adjacent_kfs action
-           /r2/perception/payload_state
-      -->
-      <AlwaysFailure name="CollectSingleR2KFSPlaceholder"/>
-    </Sequence>
+      <Sequence name="ArucoContinueRecovery">
+        <SubTree ID="StopAllMotion"/>
+        <AlwaysFailure name="ReadArUcoInstruction_ContinueToMFRecovery_Placeholder"/>
+        <RetryUntilSuccessful num_attempts="2">
+          <NavigateToNamedPose target="forest_entry_block_2_standoff"
+                               team_side="red"
+                               timeout_sec="45.0"/>
+        </RetryUntilSuccessful>
+        <AlwaysFailure name="SetTravelModeForestRecoveryPlaceholder"/>
+        <AlwaysFailure name="ConfirmChassisLiftAndForestModeRecoveryPlaceholder"/>
+      </Sequence>
+    </Fallback>
   </BehaviorTree>
 
-  <BehaviorTree ID="MF_ExitForest">
+  <BehaviorTree ID="MF_ExecuteForestPlan">
     <Sequence>
-      <!-- TODO interfaces:
-           /r2/perception/payload_state
-           /r2/forest/planner
-           /r2/nav/follow_woods_graph_path action
-           /r2/forest/exit action
+      <!-- TODO topic bridge: web_spoiler/msg/WebSpoiler on /kfs_locator/state -> /r2/perception/kfs_map -->
+      <AlwaysFailure name="WaitForManualKFSMapPlaceholder"/>
+
+      <!-- TODO service/action wrapper around meilin_router/router_planner, currently topic1 -> topic2. -->
+      <AlwaysFailure name="RequestForestPlanPlaceholder"/>
+
+      <!-- TODO state manager: initial_kfs_map/current_kfs_map/removed_r2_blocks. -->
+      <AlwaysFailure name="InitializeForestMapStatePlaceholder"/>
+
+      <!-- TODO action:
+           Execute ForestSteps in order.
+           ValidateKFSOnBlock once with arm depth camera service.
+           Judge R1 KFS removal with camera.
+           Confirm up/down motion with screw feedback, wheel IR and LiDAR.
       -->
+      <RetryUntilSuccessful num_attempts="2">
+        <AlwaysFailure name="ExecuteForestPlanPlaceholder"/>
+      </RetryUntilSuccessful>
+
+      <AlwaysFailure name="RequirePayloadR2KFSPlaceholder"/>
       <AlwaysFailure name="ExitForestViaBlock10_11_12Placeholder"/>
+      <AlwaysFailure name="SetTravelModeGroundPlaceholder"/>
     </Sequence>
   </BehaviorTree>
 
-  <BehaviorTree ID="Battlefield_PlaceMiddleLayer">
+  <BehaviorTree ID="Battlefield_ClimbAndPlaceKFS">
     <Sequence>
-      <PubNav2Goal topic_name="goal_pose"
-                   goal="0.0;0.0;0.0"/>
+      <NavigateToNamedPose target="battlefield_grid_standoff"
+                           team_side="red"
+                           timeout_sec="90.0"/>
+      <SubTree ID="StopAllMotion"/>
 
-      <!-- TODO interfaces:
-           /r2/perception/grid_state
-           /r2/strategy/select_grid_cell
-           /r2/manipulation/place_kfs_middle action
-           /r2/perception/payload_state
-      -->
-      <AlwaysFailure name="PlaceMiddleLayerPlaceholder"/>
+      <!-- TODO action: /r2/perception/read_aruco instruction=R1_GRID_ALIGN_READY -->
+      <AlwaysFailure name="ReadArUcoInstruction_R1GridAlignReady_Placeholder"/>
+      <!-- TODO action: /r2/motion/align_to_r1 -->
+      <AlwaysFailure name="AlignToR1ForClimbPlaceholder"/>
+      <!-- TODO action: /r2/navigation/up_stairs -->
+      <AlwaysFailure name="UpStairsOntoR1Placeholder"/>
+
+      <Fallback name="PlaceByArUcoLayerCode">
+        <Sequence name="PlaceOnLayer2">
+          <AlwaysFailure name="ReadArUcoInstruction_PlaceGridLayer2_Placeholder"/>
+          <AlwaysFailure name="PlaceKFSOnGridLayer2Placeholder"/>
+        </Sequence>
+        <Sequence name="PlaceOnLayer3">
+          <AlwaysFailure name="ReadArUcoInstruction_PlaceGridLayer3_Placeholder"/>
+          <AlwaysFailure name="PlaceKFSOnGridLayer3Placeholder"/>
+        </Sequence>
+      </Fallback>
+
+      <AlwaysFailure name="RequirePayloadNonePlaceholder"/>
     </Sequence>
   </BehaviorTree>
 
   <BehaviorTree ID="R2_Competition_Main">
     <ReactiveFallback name="R2Root">
       <Sequence name="EmergencyStopBranch">
-        <!-- TODO interface: /r2/emergency_stop -->
+        <!-- TODO topic: /r2/safety/emergency_stop_state -->
         <AlwaysFailure name="IsEmergencyStopRequestedPlaceholder"/>
         <SubTree ID="StopAllMotion"/>
       </Sequence>
 
       <Sequence name="RetryRecoveryBranch">
-        <!-- TODO interfaces: /r2/retry/request, /r2/retry/execute action -->
+        <!-- TODO action: /r2/retry/execute_area_aware_retry -->
         <AlwaysFailure name="IsRetryRequestedPlaceholder"/>
         <AlwaysFailure name="ExecuteAreaAwareRetryPlaceholder"/>
       </Sequence>
 
-      <Sequence name="CompetitionMission">
+      <Sequence name="CompetitionMissionNoTip">
         <SubTree ID="PreMatchAndStart"/>
-        <SubTree ID="MC_AssembleWeapon"/>
-        <SubTree ID="WaitForR1BeforeR2LeavesMC"/>
-        <SubTree ID="MF_CollectSingleR2KFS"/>
-        <SubTree ID="MF_ExitForest"/>
-        <SubTree ID="Battlefield_PlaceMiddleLayer"/>
+        <SubTree ID="MC_WaitAtMFBoundary"/>
+        <SubTree ID="MF_EnterForestEntry"/>
+        <SubTree ID="MF_ExecuteForestPlan"/>
+        <SubTree ID="Battlefield_ClimbAndPlaceKFS"/>
         <SubTree ID="StopAllMotion"/>
       </Sequence>
     </ReactiveFallback>

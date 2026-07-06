@@ -4,13 +4,14 @@
 
 本文记录当前策略下的 R2 行为树草稿：不执行端头夹取和兵器组装任务，改为先等待满足进入梅林条件，再执行树林 KFS 移动/拿取，随后进入对抗区配合 R1 完成九宫格放置。
 
-对应 XML 草稿：
+对应 XML：
 
 ```text
+behavior_trees/r2_competition_main.xml
 behavior_trees/r2_no_tip_competition_draft.xml
 ```
 
-该 XML 是接口设计草稿，不是当前可直接运行的实车主树。当前 `r2_behavior_server` 已注册的真实节点只有 `IsManualStart`、`NavigateToNamedPose`、`PubNav2Goal`、`PublishTwist`；本文中其它节点均表示后续需要封装的 action、service、topic 或状态机。
+`r2_competition_main.xml` 是当前 no-tip 主树安全骨架，`r2_no_tip_competition_draft.xml` 是更详细的接口设计草稿。当前 `r2_behavior_server` 已注册的真实节点只有 `IsManualStart`、`NavigateToNamedPose`、`PubNav2Goal`、`PublishTwist`；本文中其它节点均表示后续需要封装的 action、service、topic 或状态机。
 
 ## 术语约定
 
@@ -61,7 +62,7 @@ R2_NoTip_Competition_Main
 | 命名航点导航 | `/r2/navigation/navigate_to_named_pose` | `NavigateToNamedPose` | 已接入 BT client，依赖外部 server |
 | 停车 | `cmd_vel` `geometry_msgs/msg/Twist` | `PublishTwist`/`StopAllMotion` | 已接入 |
 | 网页 KFS 录入 | `/kfs_locator/state` `web_spoiler/msg/WebSpoiler` | `WaitForManualKFSMap` | 待封装 |
-| 梅林路径规划 | `router_planner` 的 `topic1 -> topic2` | `RequestForestPlan` | 待封装 |
+| 梅林路径规划 | `router_planner` 的 `topic1 -> topic2` | `RequestForestPlan` | 待封装为可请求、可追踪的 service/action |
 | KFS 视觉复核 | `/kfs_tracker/detection` `kfs_tracker/msg/KFSDetection` | `ValidateKFSOnBlock` 概念 | 待封装为单次 service |
 | 上/下台阶 | `rc26_r2_interfaces/action/UpStairs`、`DownStairs` | `UpStairsAction` 等 | action 类型已定义，BT wrapper 待封装 |
 | 台阶旋转 | `rc26_r2_interfaces/action/RotateOnStair` | 由 `ExecuteForestPlan` 内部调用 | action 类型已定义，BT wrapper 待封装 |
@@ -81,7 +82,7 @@ HealthCheckStartReady
 -> SkipTipPickupAndWeaponAssemblyByStrategy
 ```
 
-`SkipTipPickupAndWeaponAssemblyByStrategy` 是语义标记，表示本版流程不进入端头架、不执行夹爪夹取端头、不执行兵器组装。后续如果需要恢复该任务，应创建新的主树或重新启用原 `MC_AssembleWeapon` 子树。
+`SkipTipPickupAndWeaponAssemblyByStrategy` 是语义标记，表示本版流程不进入端头架、不执行夹爪夹取端头、不执行兵器组装。后续如果需要恢复该任务，应创建新的主树或单独的端头任务子树。
 
 ### 2. 武馆到梅林交界处等待
 
@@ -98,7 +99,7 @@ HealthCheckStartReady
 | 参数 | 含义 |
 |---|---|
 | `mf_entry_wait_sec` | `120.0` 秒，即 2 分钟 |
-| `R1 code source` | 只使用 ArUco，不按普通二维码设计 |
+| `R1 code source` | 只使用 ArUco，不按非 ArUco 码设计 |
 | `R1_ENTERED_MF_OR_CONTINUE_TO_MF` | R1 ArUco 指令文本或枚举值 |
 
 仍需标定：
@@ -153,7 +154,7 @@ WaitForManualKFSMap
 当前可复用内容：
 
 - `web_spoiler` 已持续发布 `/kfs_locator/state`。
-- `router_planner` 已能从 JSON grid 计算动作，并发布 `ForestSteps`。
+- `router_planner` 已能从 JSON grid 计算动作，并发布 `ForestSteps`；当前仍是 `topic1 -> topic2` 形式。
 - `ForestStepSingle` 已有 `MOVE/PICK/PLACE` 三类动作和 `target_block_id`。
 
 建议封装：
@@ -289,7 +290,7 @@ ReadArUcoInstruction(PLACE_GRID_LAYER3)
 已确认：
 
 1. `mf_entry_wait_sec = 120.0` 秒，即 2 分钟。
-2. R1 码使用 ArUco，不按普通二维码兼容设计。
+2. R1 码使用 ArUco，不按非 ArUco 码兼容设计。
 3. `ValidateKFSOnBlock` 的视觉输入使用机械臂深度相机。
 4. “R1 KFS 已被 R1 移除”通过相机视觉判断。
 
@@ -297,7 +298,7 @@ ReadArUcoInstruction(PLACE_GRID_LAYER3)
 
 1. `mc_mf_boundary_standoff`、`forest_entry_block_2_standoff`、`battlefield_grid_standoff` 三个航点的真实坐标。
 2. `SetTravelMode`、`ConfirmChassisLiftAndForestMode` 是否由底盘 action 提供，还是由多个 topic/service 组合。
-3. `router_planner` 是否改为 service/action；如果保持 `topic1/topic2`，需要 request id 防止旧规划结果串扰。
+3. `router_planner` 当前是 `topic1/topic2`；若保持 topic 形式，需要 request id 防止旧规划结果串扰，若改为 service/action，则需要确认请求/响应字段。
 4. `ForestSteps` 当前不包含转向动作；上下台阶和旋转应由 `ExecuteForestPlan` 根据相邻 block 高度和当前朝向补全。
 5. 用于判断 R1 KFS 移除的相机视角、检测阈值、连续确认帧数和超时时间。
 6. `AlignToR1.action` 在 README 中出现，但 action 文件暂未发现；需要补接口或替换为已有 `AlignToTarget`。
@@ -318,7 +319,7 @@ ReadArUcoInstruction(PLACE_GRID_LAYER3)
 /r2/perception/kfs_map
 /r2/forest/map_state
 /r2/perception/payload_state
-/r2/perception/r1_qr_state
+/r2/perception/r1_aruco_state
 /r2/chassis/wheel_height_state
 /r2/chassis/travel_mode_state
 /r2/navigation/navigate_to_named_pose/_action/status

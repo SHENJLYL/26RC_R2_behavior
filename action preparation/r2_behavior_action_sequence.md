@@ -1,6 +1,6 @@
 # R2 Behavior Action Sequence
 
-本文档把当前行为树流程映射到后续 action/service/topic 接入顺序。目标是让行为树保持简洁：XML 负责任务流程，外部 action server 负责具体执行。
+本文档把当前 no-tip 行为树流程映射到后续 action/service/topic 接入顺序。当前策略是不执行端头夹取和兵器组装；R2 从武馆/梅林交界等待开始，满足 2 分钟或 R1 ArUco 指令后进入梅林，完成树林 KFS 流程后到对抗区配合 R1 放置 KFS。
 
 ## 当前主树骨架
 
@@ -8,15 +8,16 @@
 R2_Competition_Main
 ├── EmergencyStopBranch
 ├── RetryRecoveryBranch
-└── CompetitionMission
+└── CompetitionMissionNoTip
     ├── PreMatchAndStart
-    ├── MC_AssembleWeapon
-    ├── WaitForR1BeforeR2LeavesMC
-    ├── MF_CollectSingleR2KFS
-    ├── MF_ExitForest
-    ├── Battlefield_PlaceMiddleLayer
+    ├── MC_WaitAtMFBoundary
+    ├── MF_EnterForestEntry
+    ├── MF_ExecuteForestPlan
+    ├── Battlefield_ClimbAndPlaceKFS
     └── StopAllMotion
 ```
+
+`behavior_trees/r2_no_tip_competition_draft.xml` 保留更详细的草稿注释；`behavior_trees/r2_competition_main.xml` 是当前主树的安全占位版本。所有未接入能力仍用 `AlwaysFailure` 占位，避免实车误跑。
 
 ## 0. 全局保护分支
 
@@ -24,247 +25,193 @@ R2_Competition_Main
 
 | 当前节点 | 后续接口 | 进入条件 | 成功/输出 |
 |---|---|---|---|
-| `IsEmergencyStopRequestedPlaceholder` | `/r2/safety/emergency_stop_state` | 急停、软停或严重安全故障 | 返回 true 后执行 `StopAllMotion` |
-| `StopAllMotion` | `PublishTwist cmd_vel=0`，同时底层急停链路 | 需要停车 | 底盘停，机械臂进入安全策略 |
+| `IsEmergencyStopRequestedPlaceholder` | topic `/r2/safety/emergency_stop_state` | 急停、软停或严重安全故障 | 返回 true 后执行 `StopAllMotion` |
+| `StopAllMotion` | `PublishTwist cmd_vel=0`，同时保留底层急停链路 | 需要停车 | 底盘停，机械臂/吸盘进入安全策略 |
 
 ### RetryRecoveryBranch
 
 | 当前节点 | 后续接口 | 进入条件 | 成功/输出 |
 |---|---|---|---|
-| `IsRetryRequestedPlaceholder` | `/r2/retry/request` | 裁判/操作员/规则守卫请求重试 | 返回 true |
-| `ExecuteAreaAwareRetryPlaceholder` | `/r2/retry/execute_area_aware_retry` | 已确认重试 | 根据当前区域回到允许重试状态 |
+| `IsRetryRequestedPlaceholder` | topic/service `/r2/retry/request` | 裁判、操作员、规则守卫或 action failure 请求重试 | 返回 true |
+| `ExecuteAreaAwareRetryPlaceholder` | action `/r2/retry/execute_area_aware_retry` | 已确认重试 | 根据当前区域、payload、地图状态回到允许恢复状态 |
 
 ## 1. PreMatchAndStart
 
 ```text
-PreMatchSelfCheck
--> WaitForKFSMapConfirmation
+HealthCheckStartReady
 -> IsManualStart
+-> SkipTipPickupAndWeaponAssemblyByStrategy
 ```
 
 | 当前节点 | 后续接口 | 读取信息 | 成功条件 |
 |---|---|---|---|
-| `PreMatchSelfCheckPlaceholder` | `/r2/health/check_start_ready` | TF、导航 action、雷达、相机、机械臂、吸盘、底盘、急停 | 所有关键模块 ready，或只存在允许 warning |
-| 新增建议节点 `WaitForKFSMapConfirmation` | `/r2/setup/wait_for_kfs_map_confirmation` | `/r2/perception/kfs_map`、网页人工确认状态、map 校验结果 | 赛前 KFS map 已确认且锁定 |
-| `IsManualStart` | `/manual_start` | `std_msgs/msg/Int32` | 收到 `>= 1` |
+| `PreMatchSelfCheckPlaceholder` | service/action `/r2/health/check_start_ready` | TF、导航 action、雷达、前方深度相机、机械臂深度相机、底盘抬升、吸盘、急停 | 所有关键模块 ready，或只存在允许 warning |
+| `IsManualStart` | topic `/manual_start` `std_msgs/msg/Int32` | 启动信号 | 收到 `>= 1` |
+| `SkipTipPickupAndWeaponAssemblyByStrategy` | 无底层接口 | 当前比赛策略 | 明确跳过端头任务 |
 
-行为树策略：
+当前不接入：
 
-- `IsManualStart` 保持现状。
-- 健康检查失败时不进入后续任务，输出清晰的 `blocking_errors[]`。
-- 如果使用网页人工确认 KFS 位置，则必须在比赛开始前完成确认并锁定 map。
-- 行为树不直接依赖网页页面，只等待 ROS 层的 `/r2/perception/kfs_map confirmed=true locked=true`。
+- `/r2/manipulation/pick_tip`
+- `/r2/manipulation/assemble_tip_to_pole`
+- `/r2/perception/weapon_assembled`
 
-### 1.1 赛前网页 KFS map 确认
+这些接口可以保留在接口库中，但不进入当前 no-tip 主树。
 
-```text
-OpponentPlacesKFS
--> OperatorConfirmsInWebPage
--> SubmitManualKFSMap
--> ValidateAndLockMap
--> PublishUnifiedKFSMap
-```
-
-| 能力 | 后续接口 | 进入条件 | 输出 |
-|---|---|---|---|
-| 网页提交人工 map | `/r2/setup/submit_manual_kfs_map` | 对方完成梅林 KFS 放置，操作员完成 1-12 号方块录入 | `accepted`、`map_version`、`validation_errors[]` |
-| 等待 map 确认 | `/r2/setup/wait_for_kfs_map_confirmation` | 行为树启动前或进入梅林前 | `confirmed=true`、`locked=true`、`source=MANUAL_SETUP` |
-| 发布统一 map | `/r2/perception/kfs_map` | 人工 map 校验通过 | 供 rule_guard、forest planner、pick action 读取 |
-
-校验规则：
-
-- 1-12 号方块编号不可重复。
-- 开局应有 3 个 `R1_KFS`、4 个 `R2_KFS`、1 个 `FAKE_KFS`。
-- 假KFS 不应位于 1/2/3 号入口方块。
-- 未确认位置必须显式标记为 `UNKNOWN`，不能默认为 `EMPTY`。
-- 锁定后的人工 map 作为 `initial_kfs_map` 保存，比赛中另用 `current_kfs_map` 随动作结果更新。
-
-## 2. MC_AssembleWeapon
+## 2. MC_WaitAtMFBoundary
 
 ```text
-NavigateToNamedPose(spearhead_rack_standoff)
--> PickTip
--> Navigate/AlignToAssemblyPose
--> AssembleTipToPole
+NavigateToNamedPose(mc_mf_boundary_standoff)
+-> StopAllMotion
+-> Wait120SecOrReadArUcoContinue
 ```
 
 | 当前节点 | 后续接口 | 读取信息 | 输出执行 | 成功条件 |
 |---|---|---|---|---|
-| `NavigateToNamedPose target=spearhead_rack_standoff` | 已接入 `/r2/navigation/navigate_to_named_pose` | map/odom/TF、雷达、导航航点 | 底盘导航 | 到达端头架前停靠点 |
-| `DetectAndPickSpearheadPlaceholder` | `/r2/manipulation/pick_tip` | 机械臂深度相机、端头位姿、夹爪反馈 | 机械臂夹取端头 | `payload_state=TIP` 或 `held_tip=true` |
-| `PubNav2Goal goal=0.0;0.0;0.0` | 建议替换为命名航点 `/r2/navigation/navigate_to_named_pose` | 装配位航点 | 底盘导航/对齐 | 到达装配位 |
-| `AssembleWeaponPlaceholder` | `/r2/manipulation/assemble_tip_to_pole` | R1 二维码、长杆/端头视觉、夹爪状态 | 插接、释放端头 | `assembled=true`，`payload_state=NONE` |
+| `NavigateToNamedPose target=mc_mf_boundary_standoff` | 已接入 `/r2/navigation/navigate_to_named_pose` | map/odom/TF、雷达、命名航点 | 底盘导航 | 到达武馆/梅林交界等待位 |
+| `StopAllMotion` | `cmd_vel=0` | 无 | 底盘停车 | 机器人保持静止 |
+| `MatchElapsedReached120SecPlaceholder` | condition/service `/r2/match/elapsed_time` 或 BT 内部计时 | 比赛开始时间 | 无 | elapsed >= `120.0` 秒 |
+| `ReadArUcoInstruction_ContinueToMF_Placeholder` | action `/r2/perception/read_aruco` | R1 ArUco id、instruction、置信度、位姿 | 无 | instruction 允许继续进入梅林 |
 
-规则约束：
+语义约束：
 
-- R2 每次只能处理一个端头。
-- R2 不应影响对方端头抓取。
-- 组装时 R2 不得接触 R1 抓住的长杆，R1/R2 不得直接肢体接触。
+- 等待成功后，行为树视作 R1 已经进入梅林。
+- 如果导航到交界处失败，可停车并进入 ArUco 继续指令恢复分支。
 
-## 3. WaitForR1BeforeR2LeavesMC
+## 3. MF_EnterForestEntry
+
+```text
+NavigateToNamedPose(forest_entry_block_2_standoff)
+-> SetTravelMode(FOREST)
+-> ConfirmChassisLiftAndForestMode
+```
+
+| 当前节点 | 后续接口 | 读取信息 | 输出执行 | 成功条件 |
+|---|---|---|---|---|
+| `NavigateToNamedPose target=forest_entry_block_2_standoff` | `/r2/navigation/navigate_to_named_pose` | 定位、雷达、命名航点 | 底盘导航 | 到达 PDF 标注的 2 号平台面前 |
+| `SetTravelModeForestPlaceholder` | action `/r2/chassis/set_travel_mode` | 丝杠圈数/电流、四轮红外高度、底盘姿态 | 丝杠抬升/模式切换 | `travel_mode=FOREST` |
+| `ConfirmChassisLiftAndForestModePlaceholder` | service/topic check | 丝杠圈数/电流、四轮红外、激光雷达 | 无 | 确认车确实完成爬升/下降准备 |
+
+恢复分支：
 
 ```text
 StopAllMotion
--> WaitUntilR1FullyEnteredMF
-```
-
-| 当前节点 | 后续接口 | 读取信息 | 成功条件 |
-|---|---|---|---|
-| `StopAllMotion` | `PublishTwist cmd_vel=0` | 无 | 底盘停车 |
-| `WaitUntilR1FullyEnteredMFPlaceholder` | `/r2/perception/read_r1_qr_state` + 区域/视觉判断 | R1 二维码、R1 位姿、场地区域判断 | R1 已满足离开武馆/进入梅林所需条件 |
-
-设计建议：
-
-- 可见二维码时直接更新 `r1_qr_state`。
-- 二维码不可见时允许读取最近可信状态，但必须检查时间戳。
-- 如果无法确认规则条件，行为树应等待或进入人工/重试，不应盲目离开武馆。
-
-## 4. MF_CollectSingleR2KFS
-
-```text
-NavigateToForestEntry
+-> ReadArUcoInstruction(CONTINUE_TO_MF)
+-> NavigateToNamedPose(forest_entry_block_2_standoff)
 -> SetTravelMode(FOREST)
--> WaitOrUpdateKFSMap
--> PlanSingleKFSTask
--> Step/Align
--> PickAdjacentKFS
+-> ConfirmChassisLiftAndForestMode
+```
+
+## 4. MF_ExecuteForestPlan
+
+```text
+WaitForManualKFSMap
+-> RequestForestPlan
+-> InitializeForestMapState
+-> ExecuteForestPlan
+-> RequirePayload(R2_KFS)
+-> ExitForestViaBlock10_11_12
+-> SetTravelMode(GROUND)
+```
+
+### 4.1 输入来源
+
+| 来源 | 当前接口 | 行为树使用方式 |
+|---|---|---|
+| 网页人工 KFS 录入 | topic `/kfs_locator/state` `web_spoiler/msg/WebSpoiler` | 等待 `ready=true`，读取 1-12 号方块 KFS 类型 |
+| 梅林路径规划 | `router_planner` 当前 `topic1 -> topic2` | 建议封装为 `/r2/forest/request_plan` service 或 action |
+| KFS 视觉复核 | topic `/kfs_tracker/detection` | 建议封装为单次 service `/r2/perception/validate_kfs_on_block` |
+| 地图维护 | 新增 topic `/r2/forest/map_state` | 记录 current map、removed_r2_blocks、current_block、payload |
+
+### 4.2 接口映射
+
+| 当前节点 | 后续接口 | 读取信息 | 输出执行 | 成功条件 |
+|---|---|---|---|---|
+| `WaitForManualKFSMapPlaceholder` | action/condition `/r2/setup/wait_for_kfs_map_confirmation` 或直接订阅 `/kfs_locator/state` | 网页 ready、color、kfs_pos、paths | 无 | KFS map 已确认可用 |
+| `RequestForestPlanPlaceholder` | service `/r2/forest/request_plan` | KFS map、start_block=2、target=exit | 请求规划器 | 得到 `ForestSteps` |
+| `InitializeForestMapStatePlaceholder` | service `/r2/forest/update_map_state` | initial map、start_block=2 | 初始化状态机 | `initial_kfs_map/current_kfs_map` 建立 |
+| `ExecuteForestPlanPlaceholder` | action `/r2/forest/execute_forest_plan` | ForestSteps、map_state、payload、底盘高度状态 | 移动、等待、抓取、临时放置 | 所有 steps 按序完成 |
+| `RequirePayloadR2KFSPlaceholder` | condition/service `/r2/perception/payload_state` | 吸盘/视觉 payload | 无 | 当前携带 `R2_KFS` |
+| `ExitForestViaBlock10_11_12Placeholder` | action `/r2/forest/exit_via_block` | current_block、exit candidates、payload | 方块移动、退出树林 | 经 10/11/12 离开 |
+| `SetTravelModeGroundPlaceholder` | action `/r2/chassis/set_travel_mode` | 红外、丝杠 | 切回普通地面模式 | `travel_mode=GROUND` |
+
+### 4.3 ExecuteForestPlan 内部语义
+
+每个 `ForestStepSingle` 执行时遵循：
+
+1. 读取 `current_step_index` 和 `target_block_id`。
+2. 用机械臂深度相机调用 `/r2/perception/validate_kfs_on_block` 做一次性视觉复核。
+3. 如果目标方块 KFS 与人工 map/规划不一致，返回 failure 并进入重新识别、重规划或人工处理。
+4. 如果规划提示路径必须等待 R1 KFS 被移除，调用 `/r2/forest/check_r1_kfs_removed`，该判断由相机完成。
+5. 若相机判断 R1 KFS 仍在，进入等待；判断已移除后短暂停顿，再继续移动，避免干涉正在移除 KFS 的 R1。
+6. `MOVE`：调用 `/r2/forest/step_to_adjacent_block`，并用丝杠圈数/电流、四轮红外、激光雷达确认爬升/下降和到位。
+7. `PICK`：调用 `/r2/manipulation/pick_adjacent_kfs`，只允许吸取 R2 KFS。
+8. `PLACE`：调用 `/r2/forest/place_payload_temporarily`，用于路径阻碍处理中的临时放置。
+9. 每步结束调用 `/r2/forest/update_map_state`，写入 `removed_r2_blocks`、`current_kfs_map`、`current_block`、`payload_state`。
+
+### 4.4 地图维护状态机
+
+必须记录：
+
+| 字段 | 含义 |
+|---|---|
+| `initial_kfs_map[1..12]` | 开局网页确认的 KFS 分布 |
+| `current_kfs_map[1..12]` | 比赛运行中的当前 KFS 分布 |
+| `removed_r2_blocks[]` | R2 已成功移除 R2 KFS 的方块编号 |
+| `r1_wait_blocks[]` | 曾等待 R1 移除 KFS 的方块编号 |
+| `conflict_blocks[]` | 视觉与 map 不一致的方块编号 |
+| `current_block` | 当前所在或面向的树林方块 |
+| `current_step_index` | 当前执行到 ForestSteps 的第几步 |
+| `carrying_payload` | `NONE/R2_KFS/UNKNOWN` |
+| `map_version` | 地图版本 |
+| `route_version` | 规划版本 |
+
+## 5. Battlefield_ClimbAndPlaceKFS
+
+```text
+NavigateToNamedPose(battlefield_grid_standoff)
+-> StopAllMotion
+-> ReadArUcoInstruction(R1_GRID_ALIGN_READY)
+-> AlignToR1ForClimb
+-> UpStairsOntoR1
+-> PlaceByArUcoLayerCode
+-> RequirePayload(NONE)
 ```
 
 | 当前节点 | 后续接口 | 读取信息 | 输出执行 | 成功条件 |
 |---|---|---|---|---|
-| `PubNav2Goal goal=0.0;0.0;0.0` | 建议替换为命名航点 `forest_entry_standoff` | 导航定位、雷达 | 底盘导航 | 到达 R2 入口附近 |
-| `CollectSingleR2KFSPlaceholder` | `/r2/chassis/set_travel_mode` | 四轮红外、丝杠圈数/电流 | 抬升/模式切换 | 进入 `FOREST` 模式 |
-| 同上 | `/r2/setup/wait_for_kfs_map_confirmation` 或 `/r2/perception/update_kfs_map` | 网页人工确认 map、机械臂深度相机、前方深度相机、KFS 分类 | 生成或校验方块占用图 | `kfs_map confirmed=true` 且规划可用 |
-| 同上 | `/r2/forest/plan_single_kfs_task` | KFS map、方块邻接图、payload_state、rule_guard | 输出步骤计划 | 有合法目标和路线 |
-| 同上 | `/r2/forest/step_to_adjacent_block` | 红外、丝杠、雷达、深度、odom | 底盘移动/找平 | 到达合法方块或抓取位 |
-| 同上 | `/r2/manipulation/pick_adjacent_kfs` | KFS 位姿、分类、吸盘反馈 | 机械臂吸取 | `payload_state=R2_KFS` |
+| `NavigateToNamedPose target=battlefield_grid_standoff` | `/r2/navigation/navigate_to_named_pose` | 定位、雷达、命名航点 | 底盘导航 | 到达九宫格附近预备位 |
+| `ReadArUcoInstruction_R1GridAlignReady_Placeholder` | action `/r2/perception/read_aruco` | R1 ArUco | 无 | R1 手操对齐完成 |
+| `AlignToR1ForClimbPlaceholder` | action `/r2/motion/align_to_r1` 或替代接口 | R1 marker pose、对齐误差 | 底盘微调 | 可爬上 R1 |
+| `UpStairsOntoR1Placeholder` | action `/r2/navigation/up_stairs` | 丝杠/红外/姿态 | 上升/爬升 | 爬上 R1 或 R1 支撑位 |
+| `PlaceKFSOnGridLayer2Placeholder` | action `/r2/motion/place_kfs_on_grid` | ArUco layer code、九宫格位姿、payload | 放置 KFS | 二层放置成功 |
+| `PlaceKFSOnGridLayer3Placeholder` | action `/r2/motion/place_kfs_on_grid` | ArUco layer code、九宫格位姿、payload | 爬升及放置 KFS | 三层放置成功 |
+| `RequirePayloadNonePlaceholder` | topic/service `/r2/perception/payload_state` | 吸盘/视觉 | 无 | payload 清空 |
 
-规则约束：
+注意：当前 `PlaceKFS.action` 只定义了 `PLACE_ON_MERLIN` 和 `PLACE_ON_GRID_LAYER2`。若继续沿用该 action，需要扩展 `PLACE_ON_GRID_LAYER3`；也可以新增更明确的 `/r2/motion/place_kfs_on_grid`。
 
-- R2 只应收集 R2 KFS。
-- 不得接触 R1 KFS 或假KFS。
-- 只能从当前位置拿取相邻方块上的 R2 KFS。
-- 如果 1/2/3 号方块上有 R2 KFS，应从 R2 入口处优先收集第一个 KFS。
-- R2 不应完全进入有 KFS 的树林方块。
-- 如果采用网页人工 map，规划器可以先以人工 map 为初始依据；抓取/移动后必须根据 action 结果更新 `current_kfs_map`。
+## 6. 重试策略
 
-## 5. 路径阻碍与单载荷处理
+| 场景 | 首选处理 | 失败后处理 |
+|---|---|---|
+| 导航到 MC/MF 交界失败 | `NavigateToNamedPose` 重试 2 次 | 停车，读取 R1 ArUco，尝试继续到梅林入口 |
+| 未到 120 秒且无 ArUco | 停车等待 | 继续等待或人工恢复 |
+| 网页 KFS map 未 ready | 等待 `/kfs_locator/state.ready=true` | 超时后不进入树林 |
+| 规划器无可行路线 | 重新请求规划 | 若是 R1 KFS 阻碍，等待相机确认 R1 移除；否则恢复 |
+| 视觉复核不一致 | 单次 service 返回 failure | 重新识别/重规划；仍不一致则人工处理 |
+| R1 KFS 未被移除 | 相机定期判断并等待 | 超时后停车，读取 ArUco 或请求恢复 |
+| 爬升/下降未确认 | 丝杠/红外/激光复核并重试 | 仍失败则停车恢复 |
+| 抓取 R2 KFS 失败 | 重新定位目标并重试 | 更新 map 为冲突/未知，重新规划 |
+| 对抗区无 R1 对齐信号 | 停车等待 ArUco | 超时后保持安全位 |
+| 放置二/三层失败 | 重新对齐并重试 | 保持 payload，等待人工或新指令 |
 
-这是后续高风险能力，建议晚于基础取放闭环实现。
-
-```text
-DetectBlockingKFS
--> RuleGuardCheck
--> PlacePayloadTemporarily(optional)
--> ResolveBlockingKFS
--> UpdateKFSMap
--> Replan
-```
-
-| 能力 | 后续接口 | 进入条件 | 输出 |
-|---|---|---|---|
-| 阻碍判断 | `/r2/forest/plan_single_kfs_task` | 必经路径被 R2 可处理 KFS 阻碍 | `BLOCKED_BY_R2_KFS` |
-| 临时放下当前 KFS | `/r2/forest/place_payload_temporarily` | 当前已携带一个 KFS，且必须空载处理阻碍 | `payload_state=NONE`，记录放置位置 |
-| 处理阻碍 | `/r2/forest/resolve_blocking_kfs` | 阻碍目标确认是 R2 KFS | 新 KFS map、新 payload_state |
-| 重新规划 | `/r2/forest/plan_single_kfs_task` | 地图变化后 | 新 plan |
-
-硬约束：
-
-- 车辆只能携带一个吸盘 KFS。
-- 分类为 `UNKNOWN` 的目标不能抓。
-- 假KFS和 R1 KFS 不能作为阻碍处理目标。
-- 临时放置策略需要单独做规则审核和实车验证。
-
-## 6. MF_ExitForest
-
-```text
-CheckPayload
--> PlanExitViaBlock10_11_12
--> FollowForestExitPath
--> SetTravelMode(GROUND/TRANSITION)
-```
-
-| 当前节点 | 后续接口 | 读取信息 | 输出执行 | 成功条件 |
-|---|---|---|---|---|
-| `ExitForestViaBlock10_11_12Placeholder` | `/r2/perception/payload_state` | 吸盘、视觉确认 | 无 | `payload_state=R2_KFS` |
-| 同上 | `/r2/forest/plan_single_kfs_task` 或 `/r2/forest/exit_via_block` | current_block、exit candidates | 出口路径 | 选中 10/11/12 |
-| 同上 | `/r2/forest/step_to_adjacent_block` | 红外、丝杠、雷达、深度、odom | 方块移动 | 到达出口方块 |
-| 同上 | `/r2/chassis/set_travel_mode` | 红外、丝杠 | 底盘模式切换 | 安全离开树林 |
-
-规则约束：
-
-- 离开树林前必须携带至少一个 R2 KFS。
-- 必须经过 10、11 或 12 号方块之一离开树林。
-
-## 7. Battlefield_PlaceMiddleLayer
-
-```text
-NavigateToBattlefield
--> ReadR1QRCodeOrGridHint
--> DetectGridState
--> SelectMiddleLayerCell
--> PlaceKFSMiddle
-```
-
-| 当前节点 | 后续接口 | 读取信息 | 输出执行 | 成功条件 |
-|---|---|---|---|---|
-| `PubNav2Goal goal=0.0;0.0;0.0` | 建议替换为命名航点 `battlefield_grid_standoff` | 导航定位、雷达、地图 | 底盘导航 | 到达九宫格预备位 |
-| `PlaceMiddleLayerPlaceholder` | `/r2/perception/read_r1_qr_state` | R1 二维码、位姿提示 | 更新对齐参考 | 可见则用于辅助对齐，不可见则降级 |
-| 同上 | `/r2/perception/detect_grid_state` | 前方/机械臂深度相机、九宫格几何 | 九宫格位姿和占用 | 中层格状态可信 |
-| 同上 | `/r2/strategy/select_grid_cell` | grid_state、payload_state、R1 状态 | 目标 cell | 选中空的中层格 |
-| 同上 | `/r2/manipulation/place_kfs_middle` | cell pose、吸盘、机械臂相机 | 机械臂放置、吸盘释放 | KFS 在目标中层格，`payload_state=NONE` |
-
-规则约束：
-
-- R2 携带一个或多个 R2 KFS 才能进入对抗区。
-- R2 当前目标是中层放置。
-- 每次只能放一个 KFS。
-- 不得向非空格放置。
-
-## 8. 建议接入节奏
-
-### 第一阶段：树和接口可观测
-
-- 接入 `/r2/health/check_start_ready`。
-- 接入网页人工 KFS map 提交与 `/r2/setup/wait_for_kfs_map_confirmation`。
-- 接入 `/r2/perception/payload_state`。
-- 接入 `/r2/rule_guard/check`。
-- rosbag 记录所有关键状态。
-
-### 第二阶段：武馆闭环
-
-- 标定 `spearhead_rack_standoff` 和装配位。
-- 接入 `/r2/manipulation/pick_tip`。
-- 接入 `/r2/manipulation/assemble_tip_to_pole`。
-- 接入 R1 二维码读取或本地区域判断。
-
-### 第三阶段：梅林基础闭环
-
-- 接入底盘抬升模式和轮端高度状态。
-- 接入 `kfs_map`，优先支持赛前网页人工确认作为初始 map。
-- 只做一个最简单合法目标：识别一个相邻 R2 KFS 并吸取。
-- 暂不做复杂阻碍重排。
-
-### 第四阶段：梅林完整路径
-
-- 接入方块图规划。
-- 接入 10/11/12 出口。
-- 接入路径阻碍与单载荷处理。
-
-### 第五阶段：对抗区放置
-
-- 接入九宫格识别。
-- 接入 R1 二维码辅助对齐。
-- 接入中层放置。
-
-## 9. 每个 action 的最小验收记录
+## 7. 每个 action 的最小验收记录
 
 每个 action 接入后，都应至少能在 rosbag 中回答：
 
 1. action 什么时候收到 goal？
 2. goal 输入是什么？
 3. action 执行期间读取了哪些关键状态？
-4. action 输出了哪些底盘/机械臂/吸盘命令？
+4. action 输出了哪些底盘、机械臂、丝杠或吸盘命令？
 5. 最终 success 还是 failure？
 6. 如果失败，`failure_reason` 是什么？
 7. 行为树是否根据结果进入正确下一步或恢复分支？

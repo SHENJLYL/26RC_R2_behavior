@@ -1,380 +1,255 @@
-# R2 Action Interface Catalog
+# R2 Action / Service / Topic Interface Catalog
 
-本文档是 R2 后续任务级 action/service/topic 的准备清单。命名为建议稿，不代表已经全部实现。
+本文档是当前 no-tip 行为树完整落地所需的接口清单。命名是建议稿，不代表已经全部实现；真正实现时应优先复用已有接口，缺口再补最小 wrapper。
 
 ## 接口分层
 
-| 层级 | 形式 | 作用 |
+| 层级 | 形式 | 行为树视角 |
 |---|---|---|
-| 行为树 BT | XML + 小型 wrapper 节点 | 编排任务顺序、分支、重试和保护 |
-| 任务级 action | ROS 2 action | 执行耗时动作，如导航、夹取、放置、穿越树林 |
-| 状态 topic | ROS 2 topic | 持续发布载荷、二维码、KFS 地图、底盘高度等状态 |
-| 查询/检查 service | ROS 2 service | 做瞬时规则检查、健康检查、策略选择 |
-| 底层控制 topic/service | ROS 2 topic/service | 由底盘、机械臂、吸盘、视觉节点内部使用，BT 不直接细控 |
+| 行为树 XML | BT.CPP XML | 编排顺序、分支、重试、保护条件 |
+| BT wrapper | C++ 小节点 | 把 topic/action/service 变成 BT 可 tick 的节点 |
+| 任务级 action | ROS 2 action | 执行耗时动作，必须有 feedback/result |
+| 单次检查 service | ROS 2 service | 做一次判断，避免连续检测抖动影响 BT 语义 |
+| 状态 topic | ROS 2 topic | 持续发布当前状态，供 BT wrapper、rosbag、调试读取 |
+| 底层控制 | ROS topic/service/action | 底盘、机械臂、吸盘、视觉内部细节，BT 不直接细控 |
 
-## 已有或当前优先复用接口
+## 已有或已发现接口
 
-| 接口 | 类型 | 当前用途 | 后续建议 |
+| 能力 | 当前来源 | 当前状态 | 行为树用法 |
 |---|---|---|---|
-| `/manual_start` | topic `std_msgs/msg/Int32` | 行为树启动 | 保持现状 |
-| `/r2/navigation/navigate_to_named_pose` | action | 命名航点导航 | 继续作为武馆、梅林入口、对抗区预备位导航入口 |
-| `goal_pose` | topic `geometry_msgs/msg/PoseStamped` | 直接发 Nav2 目标 | 保留为调试/简化接口 |
-| `cmd_vel` | topic `geometry_msgs/msg/Twist` | 停车或底盘速度 | 仅用于停车或底盘调试，不建议任务树长期直接控速度 |
-| `/cmd_suction_suck` | topic `std_msgs/msg/Bool` | 吸盘开关候选接口 | 建议外面包一层任务级 action 并补反馈 |
-| `/r2/perception/kfs_map` | topic `KFSMap.msg` | 统一 KFS 方块地图 | 由网页手动确认、视觉识别或动作结果共同维护，BT 只读该统一状态 |
+| 手动启动 | `/manual_start` `std_msgs/msg/Int32` | 已接入 `IsManualStart` | `/manual_start >= 1` 后进入主流程 |
+| 命名航点导航 | `/r2/navigation/navigate_to_named_pose` | 已接入 `NavigateToNamedPose` client | 去交界处、梅林入口、对抗区预备点 |
+| 直接 Nav2 goal | `goal_pose` `PoseStamped` | 已接入 `PubNav2Goal` | 调试和简化导航 |
+| 停车 | `cmd_vel` `Twist` | 已接入 `PublishTwist` | `StopAllMotion` 发布零速度 |
+| R1 ArUco | `ReadArUco.action` | action 类型已发现 | 需补 BT wrapper |
+| 上台阶 | `UpStairs.action` | action 类型已发现 | 梅林/爬上 R1 可复用 |
+| 下台阶 | `DownStairs.action` | action 类型已发现 | 梅林台面下降可复用 |
+| 台阶旋转 | `RotateOnStair.action` | action 类型已发现 | ForestSteps 内部补转向 |
+| KFS 放置 | `PlaceKFS.action` | action 类型已发现 | 二层已有模式，三层需扩展或新 action |
+| 目标定位/对齐 | `LocateTarget.action`、`AlignToTarget.action` | action 类型已发现 | 可作为 R1/九宫格对齐候选 |
+| 网页 KFS 录入 | `/kfs_locator/state` `web_spoiler/msg/WebSpoiler` | 已存在 topic | 需转为统一 KFS map |
+| 梅林规划 | `meilin_router/router_planner` 的 `topic1 -> topic2` | 已有函数/节点，未封装成请求式接口 | 需 service/action wrapper |
+| KFS 视觉检测 | `/kfs_tracker/detection` `kfs_tracker/msg/KFSDetection` | 已有连续检测 topic | 需封装成方块级单次复核 service |
 
-## 全局状态与规则服务
+## 全局 topic
+
+| topic | 类型建议 | 发布方 | BT 用途 |
+|---|---|---|---|
+| `/r2/safety/emergency_stop_state` | `EmergencyStopState.msg` | 安全节点 | 根节点急停分支 |
+| `/r2/retry/request` | `RetryRequest.msg` | 人工/监控节点 | 区域恢复分支 |
+| `/r2/match/elapsed_time` | `builtin_interfaces/Duration` 或自定义 msg | 比赛计时节点 | 判断 120 秒入梅林条件 |
+| `/r2/perception/r1_aruco_state` | `R1ArUcoState.msg` | ArUco 识别节点 | 继续入梅林、对齐、层数指令 |
+| `/r2/perception/kfs_map` | `KFSMap.msg` | KFS map manager | 梅林规划和规则检查 |
+| `/r2/forest/map_state` | `ForestMapState.msg` | 地图维护状态机 | 记录 `removed_r2_blocks`、步骤进度 |
+| `/r2/perception/payload_state` | `PayloadState.msg` | 吸盘/视觉融合节点 | 确认是否携带 R2 KFS |
+| `/r2/chassis/wheel_height_state` | `WheelHeightState.msg` | 底盘节点 | 判断丝杠/红外高度 |
+| `/r2/chassis/travel_mode_state` | `TravelModeState.msg` | 底盘节点 | 判断 `GROUND/FOREST/RECOVERY` 到位 |
+| `/r2/chassis/motion_state` | `MotionState.msg` | 底盘/导航节点 | 判断卡住、抖动、移动是否发生 |
+| `/r2/manipulation/suction_state` | `SuctionState.msg` | 吸盘节点 | 判断吸取是否成功 |
+| `/r2/perception/grid_state` | `GridState.msg` | 九宫格视觉节点 | 对抗区放置前确认层/格状态 |
+
+## 全局 service
 
 ### `/r2/health/check_start_ready`
 
-建议类型：service 或短 action。
-
 | 项 | 内容 |
 |---|---|
-| 目的 | 比赛开始前确认 R2 能否进入主流程 |
-| 输入 | 期望模式 `competition/simulation/test`，必要传感器列表 |
-| 读取 | TF 是否连通，导航 action 是否可用，雷达/相机/机械臂/吸盘/底盘状态时间戳，急停状态 |
-| 输出 | `ready`、`blocking_errors[]`、`warnings[]` |
-| BT 用法 | 替换 `PreMatchSelfCheckPlaceholder` |
-
-### `/r2/safety/emergency_stop_state`
-
-建议类型：topic。
-
-| 项 | 内容 |
-|---|---|
-| 目的 | 向行为树提供急停或软停状态 |
-| 读取 | 硬件急停、遥控急停、底盘保护、机械臂保护 |
-| 输出 | `is_stop_requested`、`source`、`stamp` |
-| BT 用法 | 替换 `IsEmergencyStopRequestedPlaceholder`，触发 `StopAllMotion` |
+| 建议形式 | service `CheckStartReady.srv` |
+| 输入 | `mode`、`required_modules[]`、`max_state_age_sec` |
+| 读取 | TF、导航 action、相机、雷达、底盘、吸盘、急停、地图文件 |
+| 输出 | `ready`、`blocking_errors[]`、`warnings[]`、`diagnostic_text` |
+| BT 节点 | `PreMatchSelfCheckPlaceholder` 的替代 |
 
 ### `/r2/rule_guard/check`
 
-建议类型：service。
-
 | 项 | 内容 |
 |---|---|
-| 目的 | 在动作执行前检查是否违反规则 |
-| 输入 | `proposed_action`、`current_zone`、`current_block`、`target_block`、`payload_state`、`kfs_map` |
-| 读取 | 规则约束、KFS 类型、树林方块占用、载荷状态、R1 状态 |
+| 建议形式 | service `CheckRuleGuard.srv` |
+| 输入 | `proposed_action`、`zone`、`current_block`、`target_block`、`payload_state`、`kfs_map_version` |
+| 读取 | 当前 KFS map、payload、比赛规则、地图状态机 |
 | 输出 | `allowed`、`reason_code`、`reason_text`、`suggested_recovery` |
-| BT 用法 | 放在抓取、进入树林、离开树林、进入对抗区、放置 KFS 前 |
-| 关键规则 | 不触碰 R1 KFS/假KFS；不完全进入有 KFS 的树林方块；离开树林前携带至少一个 R2 KFS；经 10/11/12 号方块离开树林；R2 携带 R2 KFS 才进入对抗区 |
+| BT 节点 | 放在进入梅林、抓取、临时放置、离开树林、爬上 R1、放置 KFS 前 |
 
-### `/r2/perception/payload_state`
+## 赛前与入梅林接口
 
-建议类型：topic。
-
-| 项 | 内容 |
-|---|---|
-| 目的 | 记录 R2 当前是否携带 KFS 或端头 |
-| 读取 | 吸盘真空压力、吸盘开关状态、机械臂相机确认、夹爪状态 |
-| 输出 | `payload_type` = `NONE/R2_KFS/R1_KFS/FAKE_KFS/TIP/UNKNOWN`，`confidence`，`held_by` = `SUCTION/GRIPPER/NONE`，`stamp` |
-| BT 用法 | 抓取前确认空载，离开树林前确认携带 R2 KFS，对抗区放置后确认空载 |
-
-## 赛前网页手动确认 KFS map
-
-该方案用于比赛设置阶段：对方在本队梅林树林方块上放好 KFS 后，由操作员通过网页手动确认 1-12 号方块上分别放置了什么类型的 KFS。网页不应直接被行为树调用；网页只负责写入和确认 KFS map，行为树读取统一的 `/r2/perception/kfs_map` 并等待确认状态。
-
-### `/r2/setup/submit_manual_kfs_map`
-
-建议类型：service `SubmitManualKFSMap.srv`。
+### `/r2/perception/read_aruco`
 
 | 项 | 内容 |
 |---|---|
-| 目的 | 让网页把人工确认的树林 KFS 分布提交给 ROS 系统 |
-| 调用方 | 网页后端或本地操作界面节点，不建议由 BT 直接调用 |
-| 输入 | `team_side`、`map_version`、`operator_id`、`blocks[1..12]`、`confirm=true/false`、`lock_for_match=true/false` |
-| `blocks` 内容 | 每个方块含 `block_id`、`kfs_type`、`occupancy`、`manual_note` |
-| 校验 | 1-12 号不可重复；总数应为 3 个 `R1_KFS`、4 个 `R2_KFS`、1 个 `FAKE_KFS`；假KFS 不应在 1/2/3 号入口方块；未知格必须显式标记 |
-| 输出 | `accepted`、`error_code`、`message`、`normalized_map`、`map_version` |
-| 失败例 | `INVALID_COUNT`、`DUPLICATE_BLOCK`、`FAKE_KFS_AT_ENTRY`、`UNKNOWN_BLOCK_TYPE`、`MAP_ALREADY_LOCKED` |
-| 结果作用 | 被接受后由 map 管理节点发布 `/r2/perception/kfs_map` |
+| 建议形式 | action，可直接复用 `ReadArUco.action` |
+| 输入 | `expected_id`、`timeout` |
+| 读取 | R1 ArUco 图像、识别 id、指令内容、位姿 |
+| 输出 | `success`、`code_id`、`instruction`、`message` |
+| feedback | `status`、`progress` |
+| BT 用途 | 卡住后继续进梅林、R1 手操对齐完成、二/三层放置指令 |
+| 注意 | 当前不按非 ArUco 码设计，topic 名称和文档统一使用 `aruco` |
 
-### `/r2/setup/wait_for_kfs_map_confirmation`
-
-建议类型：action `WaitForKFSMapConfirmation.action`。
+### `/r2/match/elapsed_time`
 
 | 项 | 内容 |
 |---|---|
-| 目的 | 行为树等待人工 KFS map 已确认且已锁定 |
-| 输入 | `timeout_sec`、`require_locked=true`、`accepted_sources=[MANUAL_SETUP]`、`required_map_version` |
-| 读取 | `/r2/perception/kfs_map`、人工确认状态、map 校验结果 |
-| feedback | `current_state` = `WAITING/INVALID/CONFIRMED/LOCKED`，`missing_blocks[]`，`validation_errors[]` |
-| result | `confirmed`、`locked`、`map_version`、`source`、`error_code`、`message` |
-| BT 用法 | 放在 `PreMatchAndStart` 或进入梅林前，确保没有确认 map 时不会进入树林任务 |
+| 建议形式 | topic 或 BT timing wrapper |
+| 输入 | 无，或启动时间戳 |
+| 输出 | 比赛开始后的 elapsed seconds |
+| BT 用途 | `MatchElapsedReached120SecPlaceholder`，达到 `120.0` 秒后允许进入梅林 |
+| 注意 | 如果比赛计时只在 BT 内实现，也应在 rosbag 中输出计时状态便于复盘 |
 
-### `/r2/perception/kfs_map`
+## 网页 KFS map 与梅林规划
 
-建议类型：topic `KFSMap.msg`，QoS 建议使用 `transient_local`，保证晚启动节点也能拿到最近一次确认 map。
-
-| 项 | 内容 |
-|---|---|
-| 目的 | 给行为树、规则检查、树林规划、抓取 action 提供统一 KFS 方块地图 |
-| 来源 | `MANUAL_SETUP`、`VISION_OBSERVED`、`ACTION_UPDATED`、`FUSED` |
-| 字段 | `map_version`、`source`、`confirmed`、`locked`、`stamp`、`blocks[1..12]` |
-| 使用原则 | 赛前以 `MANUAL_SETUP` 为初始可信地图；比赛中抓取、放置、掉落、视觉复查后生成更新版本 |
-| BT 用法 | BT 不关心网页实现，只检查 `confirmed=true` 且 `locked=true` 的统一 map |
-
-### 手动 map 与视觉 map 的关系
-
-| 阶段 | 推荐来源 | 处理方式 |
-|---|---|---|
-| 赛前设置结束 | 网页人工确认 | 作为初始 `kfs_map`，source=`MANUAL_SETUP` |
-| 进入树林前 | 初始手动 map + 规则检查 | 规划器以手动 map 为准，视觉只做安全复核 |
-| 抓取后 | action 结果 | 将目标方块标记为 `EMPTY` 或 `UPDATED_BY_ACTION` |
-| 运动中发现不一致 | 视觉复查 | 发布新 map version，并让规划器重新规划 |
-| 人工 map 未确认 | 无 | BT 不进入梅林收集阶段 |
-
-## 武馆 action
-
-### `/r2/manipulation/pick_tip`
-
-建议类型：action `PickTip.action`。
+### `/r2/setup/validate_manual_kfs_map`
 
 | 项 | 内容 |
 |---|---|
-| 目的 | R2 从端头架夹取一个端头 |
-| 输入 | `rack_pose_hint`、`target_slot_policy`、`team_side`、`timeout_sec` |
-| 读取 | 机械臂深度相机、夹爪开合/电流/力反馈、端头架位姿、机械臂关节状态 |
-| 输出执行 | 机械臂运动、夹爪闭合、必要时微调对位 |
-| 结果 | `success`、`held_tip`、`tip_pose`、`slot_id`、`failure_reason` |
-| BT 用法 | 替换 `DetectAndPickSpearheadPlaceholder` |
-| 规则注意 | 每次只能接触、拿起和移动一个端头；不能影响对方抓取其它端头 |
+| 建议形式 | service |
+| 输入 | 来自 `/kfs_locator/state` 的 `ready`、`color`、`kfs_pos[12]`、`paths[]` |
+| 读取 | KFS 数量规则、方块编号规则、入口限制 |
+| 输出 | `valid`、`normalized_map`、`map_version`、`error_code`、`message` |
+| BT 用途 | `WaitForManualKFSMapPlaceholder`，确认人工 map 可用 |
+| 已知来源 | `web_spoiler/msg/WebSpoiler`，`kfs_pos` 中 0/1/2/3 分别表示空、R1、R2、假KFS |
 
-### `/r2/manipulation/assemble_tip_to_pole`
-
-建议类型：action `AssembleTipToPole.action`。
+### `/r2/forest/request_plan`
 
 | 项 | 内容 |
 |---|---|
-| 目的 | R2 持端头，与 R1 持长杆完成兵器组装 |
-| 输入 | `assembly_pose_hint`、`r1_state_hint`、`timeout_sec` |
-| 读取 | R1 二维码状态、机械臂深度相机、夹爪状态、端头姿态、长杆/快速接头视觉目标 |
-| 输出执行 | 导航微调或底盘对齐、机械臂插接动作、夹爪释放 |
-| 结果 | `assembled`、`weapon_id`、`tip_released`、`failure_reason` |
-| BT 用法 | 替换 `AssembleWeaponPlaceholder` |
-| 规则注意 | R2 不得接触 R1 抓住的长杆；R1/R2 不得发生直接肢体接触 |
+| 建议形式 | service；若规划节点启动慢或需要多轮反馈，可做 action |
+| 输入 | `current_block`、`entry_block=2`、`kfs_map`、`payload_state`、`removed_r2_blocks[]` |
+| 读取 | `meilin_router/router_planner`、方块邻接图、KFS 分布 |
+| 输出 | `success`、`ForestSteps`、`route_version`、`requires_r1_removed_blocks[]`、`message` |
+| BT 用途 | `RequestForestPlanPlaceholder` |
+| 当前缺口 | 现有 planner 使用 `topic1 -> topic2`，需要 request id 或 service wrapper，避免旧结果串扰 |
 
-### `/r2/perception/read_r1_qr_state`
-
-建议类型：action 或 service `ReadR1StateQRCode`。
+### `/r2/forest/update_map_state`
 
 | 项 | 内容 |
 |---|---|
-| 目的 | 在能看到 R1 二维码时读取 R1 状态 |
-| 输入 | `expected_states[]`、`max_age_sec`、`timeout_sec` |
-| 读取 | 前方深度相机或机械臂深度相机图像、二维码检测、二维码位姿估计 |
-| 输出 | `visible`、`state`、`confidence`、`qr_pose`、`stamp` |
-| BT 用法 | 判断 R1 是否离开武馆、是否进入梅林、对抗区是否可对齐九宫格 |
-| 状态建议 | `UNKNOWN`、`R1_LEFT_MC`、`R1_ENTERED_MF`、`R1_READY_FOR_ASSEMBLY`、`R1_AT_GRID_ALIGN_POSE`、`NEXT_TASK_HINT` |
-| 关键约束 | 二维码只作为机会性感知来源，必须允许不可见和过期 |
+| 建议形式 | service，同时发布 `/r2/forest/map_state` |
+| 输入 | `event`、`block_id`、`step_index`、`payload_state`、`observation` |
+| 输出 | `accepted`、`new_map_version`、`new_state`、`diagnostic_text` |
+| 必存字段 | `initial_kfs_map`、`current_kfs_map`、`removed_r2_blocks`、`r1_wait_blocks`、`conflict_blocks`、`current_block`、`current_step_index` |
+| BT 用途 | 每个 ForestSteps step 后更新地图状态，供重试和 rosbag 分析 |
 
-## 梅林与树林 action
+## 梅林执行接口
+
+### `/r2/perception/validate_kfs_on_block`
+
+| 项 | 内容 |
+|---|---|
+| 建议形式 | service `ValidateKFSOnBlock.srv` |
+| 输入 | `block_id`、`expected_type`、`expected_occupancy`、`camera=ARM_DEPTH`、`max_age_sec` |
+| 读取 | 机械臂深度相机、`/kfs_tracker/detection`、方块几何标定 |
+| 输出 | `match`、`observed_type`、`confidence`、`pose`、`error_code`、`message` |
+| BT 用途 | ForestSteps 每个高风险动作前做一次复核 |
+| 失败语义 | 不吻合直接返回 failure，不在 BT 内反复检测，交给重试/重规划处理 |
+
+### `/r2/forest/check_r1_kfs_removed`
+
+| 项 | 内容 |
+|---|---|
+| 建议形式 | service 或带超时 action |
+| 输入 | `block_id`、`expected_removed=true`、`confirm_frames`、`timeout_sec` |
+| 读取 | 相机检测、KFS map、路径规划标记 |
+| 输出 | `removed`、`confidence`、`last_seen_stamp`、`message` |
+| BT 用途 | 路径必须经过 R1 KFS 阻碍位置时，先等 R1 移除；移除后短暂停顿再动 |
 
 ### `/r2/chassis/set_travel_mode`
 
-建议类型：action `SetTravelMode.action`。
+| 项 | 内容 |
+|---|---|
+| 建议形式 | action |
+| 输入 | `mode=GROUND/FOREST/TRANSITION/RECOVERY`、`target_height[]`、`timeout_sec` |
+| 读取 | 四轮丝杠圈数/电流、四轮红外高度、IMU/底盘状态 |
+| 输出执行 | 丝杠目标、底盘限速、保护状态 |
+| result | `mode_reached`、`wheel_height[]`、`confidence`、`failure_reason` |
+| BT 用途 | 进入树林前、离开树林后、恢复流程 |
+
+### `/r2/forest/execute_forest_plan`
 
 | 项 | 内容 |
 |---|---|
-| 目的 | 切换普通地面、树林、过渡等底盘抬升模式 |
-| 输入 | `mode` = `GROUND/FOREST/TRANSITION/RECOVERY`，`target_height[]`，`timeout_sec` |
-| 读取 | 四轮丝杠圈数/电流、四轮红外高度、底盘姿态、轮端状态 |
-| 输出执行 | 丝杠电机目标、底盘速度限制、抬升过程保护 |
-| 结果 | `mode_reached`、`wheel_height[]`、`confidence`、`failure_reason` |
-| BT 用法 | 进入树林前、退出树林后、异常恢复时调用 |
-
-### `/r2/chassis/level_on_blocks`
-
-建议类型：action `LevelOnBlocks.action`。
-
-| 项 | 内容 |
-|---|---|
-| 目的 | 在高低不同的树林方块上保持车体可移动姿态 |
-| 输入 | `current_block`、`support_blocks[]`、`level_tolerance` |
-| 读取 | 四轮红外相对高度、丝杠圈数/电流、IMU/底盘姿态、轮速 |
-| 输出执行 | 四轮丝杠微调、底盘速度上限 |
-| 结果 | `leveled`、`height_error[]`、`blocked_wheel[]`、`failure_reason` |
-| BT 用法 | `StepToAdjacentBlock` 内部调用，或作为 BT 前置保护动作 |
-
-### `/r2/perception/update_kfs_map`
-
-建议类型：action 或 service。
-
-| 项 | 内容 |
-|---|---|
-| 目的 | 维护 1-12 号树林方块的 KFS 占用图，并把网页手动 map、视觉观测和动作结果统一成 `/r2/perception/kfs_map` |
-| 输入 | `zone`、`team_side`、`known_block_layout`、`source_preference`、`timeout_sec` |
-| 读取 | 网页人工确认 map、机械臂深度相机、前方深度相机、激光雷达、方块几何标定、KFS 分类模型、抓取/放置 action 结果 |
-| 输出 | `kfs_map[1..12]`，每格含 `occupancy`、`kfs_type`、`pose`、`confidence`、`source`、`last_seen`、`map_version` |
-| BT 用法 | 进入树林前确认 map 已锁定；每次移动/抓取后刷新或校验 |
-| 分类 | `EMPTY/R1_KFS/R2_KFS/FAKE_KFS/UNKNOWN/OCCLUDED` |
-| 注意 | 赛前人工确认是初始地图，不应替代比赛中对抓取结果和异常情况的更新 |
-
-### `/r2/forest/plan_single_kfs_task`
-
-建议类型：action 或 service。
-
-| 项 | 内容 |
-|---|---|
-| 目的 | 在一次只能携带一个 KFS 的约束下规划 R2 收集与离开树林 |
-| 输入 | `current_block`、`entry_pose`、`kfs_map`、`payload_state`、`exit_candidates=[10,11,12]` |
-| 读取 | 树林方块邻接图、KFS 类型、规则检查结果、底盘可达性 |
-| 输出 | `plan_steps[]`，包含 `MOVE_TO_BLOCK/PICK_ADJACENT_KFS/PLACE_PAYLOAD/EXIT_FOREST/REPLAN` |
-| BT 用法 | 替换 `CollectSingleR2KFSPlaceholder` 和 `ExitForestViaBlock10_11_12Placeholder` 的规划部分 |
-| 规则注意 | 若 1/2/3 号方块有 R2 KFS，应从 R2 入口处优先收集第一个 KFS；不得选择 R1 KFS/假KFS/UNKNOWN 为抓取目标 |
-
-### `/r2/forest/step_to_adjacent_block`
-
-建议类型：action `StepToAdjacentBlock.action`。
-
-| 项 | 内容 |
-|---|---|
-| 目的 | 在树林方块间移动到相邻方块或指定边界位置 |
-| 输入 | `from_block`、`to_block`、`target_pose_on_block`、`avoid_occupied_blocks` |
-| 读取 | 四轮红外、丝杠圈数/电流、激光雷达、前方深度相机、里程计、TF、KFS map |
-| 输出执行 | 底盘 `cmd_vel`、丝杠抬升、必要时暂停/找平/重规划 |
-| 结果 | `arrived`、`current_block`、`pose_error`、`contact_risk`、`failure_reason` |
-| BT 用法 | 梅林内部移动原语，建议由森林 action server 内部调用 |
+| 建议形式 | action |
+| 输入 | `ForestSteps`、`route_version`、`initial_map_version`、`current_block` |
+| 内部调用 | `ValidateKFSOnBlock`、`CheckR1KFSRemoved`、`UpStairs`、`DownStairs`、`RotateOnStair`、`PickAdjacentKFS`、`PlacePayloadTemporarily`、`UpdateForestMapState` |
+| feedback | `step_index`、`step_type`、`target_block_id`、`current_block`、`payload_state`、`map_version`、`state` |
+| result | `success`、`final_block`、`payload_state`、`removed_r2_blocks[]`、`failure_reason` |
+| BT 用途 | 替换 `ExecuteForestPlanPlaceholder` |
+| 注意 | `ForestSteps` 当前只有 `MOVE/PICK/PLACE` 和 `target_block_id`，上下台阶、转向和高度差处理需在执行 action 内补全 |
 
 ### `/r2/manipulation/pick_adjacent_kfs`
 
-建议类型：action `PickAdjacentKFS.action`。
-
 | 项 | 内容 |
 |---|---|
-| 目的 | 从当前所在方块的相邻方块抓取一个 R2 KFS |
+| 建议形式 | action |
 | 输入 | `current_block`、`target_block`、`expected_type=R2_KFS`、`timeout_sec` |
-| 读取 | 机械臂深度相机、KFS pose、KFS 分类、吸盘真空反馈、机械臂关节状态、payload_state |
-| 输出执行 | 机械臂对位、吸盘开启、抬起确认 |
-| 结果 | `picked`、`payload_state`、`target_block_now`、`failure_reason` |
-| BT 用法 | 替换 `PickAdjacentKFSMock` |
-| 规则注意 | 只能取相邻方块上的 R2 KFS；如果 payload 不为 `NONE`，必须先拒绝或执行放置/换取流程 |
+| 读取 | 机械臂深度相机、吸盘真空、机械臂关节状态、payload |
+| result | `picked`、`payload_state`、`target_block_now`、`failure_reason` |
+| BT 用途 | 由 `ExecuteForestPlan` 内部调用 |
 
 ### `/r2/forest/place_payload_temporarily`
 
-建议类型：action `PlacePayloadTemporarily.action`。
-
 | 项 | 内容 |
 |---|---|
-| 目的 | 当已携带 KFS 且必须处理路径阻碍时，将当前 KFS 临时放到允许位置 |
-| 输入 | `preferred_block_or_pose`、`reason`、`timeout_sec` |
-| 读取 | payload_state、机械臂深度相机、放置区域可用性、规则检查 |
-| 输出执行 | 机械臂放置、吸盘释放、payload_state 更新 |
-| 结果 | `placed`、`placed_pose`、`placed_block`、`payload_state_after`、`failure_reason` |
-| BT 用法 | 仅在 `resolve_blocking_kfs` 或异常流程中使用 |
-| 风险 | 需要规则与裁判口径确认，尤其是临时放置位置是否会影响后续计分或重试 |
-
-### `/r2/forest/resolve_blocking_kfs`
-
-建议类型：action `ResolveBlockingKFS.action`。
-
-| 项 | 内容 |
-|---|---|
-| 目的 | 处理必经路径上存在 R2 必须自行解决的 KFS 阻碍 |
-| 输入 | `blocked_edge_or_block`、`current_plan`、`payload_state`、`kfs_map` |
-| 读取 | KFS 类型、路径阻塞原因、payload_state、规则检查、机械臂相机 |
-| 输出执行 | 必要时临时放下已携带 KFS，再抓取/转移阻碍的 R2 KFS，然后重规划 |
-| 结果 | `resolved`、`new_kfs_map`、`new_payload_state`、`next_plan_hint`、`failure_reason` |
-| BT 用法 | 高风险后续能力，建议先做离线仿真和规则审查，不作为第一批实车动作 |
-| 硬约束 | 不得触碰 R1 KFS、假KFS 或分类不可信目标 |
+| 建议形式 | action |
+| 输入 | `current_block`、`target_block`、`payload_type=R2_KFS`、`reason` |
+| 读取 | 机械臂相机、吸盘状态、方块占用 |
+| result | `placed`、`new_payload_state`、`new_block_state`、`failure_reason` |
+| BT 用途 | 遇到路径阻碍需要换取/让路时临时放下 R2 KFS |
 
 ### `/r2/forest/exit_via_block`
 
-建议类型：action `ExitForestViaBlock.action`。
+| 项 | 内容 |
+|---|---|
+| 建议形式 | action |
+| 输入 | `exit_candidates=[10,11,12]`、`current_block`、`payload_required=R2_KFS` |
+| 读取 | 地图状态机、规划器、底盘状态 |
+| result | `exited`、`exit_block`、`final_pose`、`failure_reason` |
+| BT 用途 | `ExitForestViaBlock10_11_12Placeholder` |
+
+## 对抗区接口
+
+### `/r2/motion/align_to_r1`
 
 | 项 | 内容 |
 |---|---|
-| 目的 | 从 10/11/12 号方块之一离开树林 |
-| 输入 | `exit_block`、`payload_required=true`、`timeout_sec` |
-| 读取 | payload_state、current_block、方块邻接图、底盘高度状态 |
-| 输出执行 | 方块路径跟随、底盘模式切换 |
-| 结果 | `exited`、`exit_block`、`payload_state`、`failure_reason` |
-| BT 用法 | 替换 `ExitForestViaBlock10_11_12Placeholder` |
+| 建议形式 | action；若已有 `AlignToTarget.action` 可复用，应优先复用 |
+| 输入 | `target=R1_CLIMB_POSE`、`aruco_hint`、`timeout_sec` |
+| 读取 | R1 ArUco 位姿、前方/机械臂深度相机、雷达、TF |
+| result | `aligned`、`pose_error`、`failure_reason` |
+| BT 用途 | 爬上 R1 前对齐 |
+| 当前缺口 | README 曾提到 `AlignToR1`，但 action 文件暂未发现 |
 
-## 对抗区 action
-
-### `/r2/navigation/navigate_to_battlefield_standoff`
-
-建议类型：复用 `/r2/navigation/navigate_to_named_pose`。
+### `/r2/motion/place_kfs_on_grid`
 
 | 项 | 内容 |
 |---|---|
-| 目的 | 从梅林出口移动到对抗区九宫格预备位 |
-| 输入 | 命名航点，如 `battlefield_grid_standoff` |
-| 读取 | Nav2 定位、地图、雷达、里程计 |
-| 输出执行 | 导航 action 内部控制底盘 |
-| 结果 | `success`、`final_pose`、`failure_reason` |
-| BT 用法 | 放在 `Battlefield_PlaceMiddleLayer` 开始处 |
+| 建议形式 | action |
+| 输入 | `layer=2/3`、`cell_id`、`payload_required=R2_KFS`、`timeout_sec` |
+| 读取 | R1 ArUco 层数指令、九宫格状态、机械臂深度相机、吸盘状态 |
+| result | `placed`、`layer`、`cell_id`、`payload_after`、`failure_reason` |
+| BT 用途 | `PlaceKFSOnGridLayer2Placeholder` / `PlaceKFSOnGridLayer3Placeholder` |
+| 当前缺口 | `PlaceKFS.action` 只有 `PLACE_ON_MERLIN=0` 和 `PLACE_ON_GRID_LAYER2=1`，三层需扩展 |
 
-### `/r2/perception/detect_grid_state`
+## 建议新增/统一消息
 
-建议类型：action 或 service。
-
-| 项 | 内容 |
-|---|---|
-| 目的 | 识别九宫格位姿、空格和已占用格 |
-| 输入 | `layer_filter=MIDDLE`、`team_side`、`timeout_sec` |
-| 读取 | 前方深度相机、机械臂深度相机、R1 二维码对齐提示、九宫格几何模型 |
-| 输出 | `grid_pose`、`cells[3x3]`，每格含 `layer`、`occupied`、`confidence`、`cell_pose` |
-| BT 用法 | 替换 `ReadGridStateMock` |
-
-### `/r2/strategy/select_grid_cell`
-
-建议类型：service。
-
-| 项 | 内容 |
-|---|---|
-| 目的 | 选择 R2 中层放置目标格 |
-| 输入 | `grid_state`、`payload_state`、`r1_state_hint`、`score_policy` |
-| 读取 | 九宫格占用、本队策略、R1 二维码状态、规则检查 |
-| 输出 | `target_cell`、`target_layer=MIDDLE`、`reason` |
-| BT 用法 | 替换 `SelectMiddleLayerCellMock` |
-
-### `/r2/manipulation/place_kfs_middle`
-
-建议类型：action `PlaceKFSMiddle.action`。
-
-| 项 | 内容 |
-|---|---|
-| 目的 | 将当前携带的 KFS 放入九宫格中层空格 |
-| 输入 | `target_cell`、`grid_pose`、`payload_expected=R2_KFS`、`timeout_sec` |
-| 读取 | payload_state、机械臂深度相机、九宫格 cell pose、吸盘真空反馈、机械臂关节状态 |
-| 输出执行 | 机械臂放置轨迹、吸盘释放、撤出格子虚拟表面 |
-| 结果 | `placed`、`cell_occupied`、`payload_state_after=NONE`、`failure_reason` |
-| BT 用法 | 替换 `PlaceMiddleLayerPlaceholder` |
-| 规则注意 | 只能放入中层空格，每次只能放一个，不能向非空格放置 |
-
-## 重试与恢复 action
-
-### `/r2/retry/execute_area_aware_retry`
-
-建议类型：action。
-
-| 项 | 内容 |
-|---|---|
-| 目的 | 根据当前区域执行安全重试或请求人工恢复 |
-| 输入 | `current_zone`、`reason_code`、`payload_state`、`last_known_pose` |
-| 读取 | 裁判/操作员重试请求、定位、payload_state、规则状态 |
-| 输出执行 | 停车、释放或保持机构、安全姿态、导航到重试区或等待人工 |
-| 结果 | `retry_ready`、`target_retry_area`、`state_after_retry`、`failure_reason` |
-| BT 用法 | 替换 `ExecuteAreaAwareRetryPlaceholder` |
-
-## 建议优先实现的自定义 message/action
-
-| 名称 | 形式 | 用途 |
+| 名称 | 类型 | 用途 |
 |---|---|---|
-| `PayloadState.msg` | msg | 全局载荷状态 |
-| `KFSBlockState.msg` | msg | 单个树林方块的 KFS 分类与位姿 |
-| `KFSMap.msg` | msg | 1-12 号方块占用图 |
-| `SubmitManualKFSMap.srv` | srv | 网页提交并校验人工确认的 KFS map |
-| `WaitForKFSMapConfirmation.action` | action | 行为树等待赛前 KFS map 已确认且锁定 |
-| `R1QRCodeState.msg` | msg | R1 二维码状态、可见性和时间戳 |
-| `WheelHeightState.msg` | msg | 四轮红外高度、丝杠圈数/电流 |
-| `RuleGuardCheck.srv` | srv | 规则检查 |
-| `PickTip.action` | action | 夹取端头 |
-| `PickAdjacentKFS.action` | action | 夹取相邻 R2 KFS |
-| `PlaceKFSMiddle.action` | action | 中层放置 KFS |
-| `StepToAdjacentBlock.action` | action | 树林方块移动 |
-| `SetTravelMode.action` | action | 切换底盘抬升模式 |
+| `PayloadState.msg` | msg | `NONE/R2_KFS/UNKNOWN`、吸盘状态、置信度 |
+| `R1ArUcoState.msg` | msg | ArUco 可见性、id、instruction、位姿、时间戳 |
+| `KFSBlockState.msg` | msg | 单个方块的 KFS 类型、占用、来源、置信度 |
+| `KFSMap.msg` | msg | 1-12 号方块初始/当前地图 |
+| `ForestMapState.msg` | msg | `removed_r2_blocks`、步骤进度、冲突和等待记录 |
+| `WheelHeightState.msg` | msg | 四轮红外、丝杠圈数/电流、目标高度 |
+| `TravelModeState.msg` | msg | `GROUND/FOREST/TRANSITION/RECOVERY` |
+| `ValidateKFSOnBlock.srv` | srv | 机械臂相机单次复核方块 KFS |
+| `CheckR1KFSRemoved.srv` | srv | 相机确认 R1 KFS 是否已移除 |
+| `RequestForestPlan.srv` | srv | 请求梅林规划器输出 ForestSteps |
+| `ExecuteForestPlan.action` | action | 执行完整梅林动作序列 |
+| `PlaceKFSOnGrid.action` | action | 对抗区二层/三层 KFS 放置 |
+
+## 当前不接入的接口
+
+| 接口方向 | 当前处理 |
+|---|---|
+| 端头夹取 | 当前主树不执行 |
+| 兵器组装 | 当前主树不执行 |
+| 非 ArUco 码 | 当前按 R1 ArUco 设计 |
+| 行为树内部实现视觉/路径规划 | 不做，保持外部 action/service/topic |

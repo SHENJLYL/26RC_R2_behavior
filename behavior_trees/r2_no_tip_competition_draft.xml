@@ -100,7 +100,7 @@
       -->
       <AlwaysFailure name="WaitForManualKFSMapPlaceholder"/>
 
-      <!-- TODO service/action wrapper around meilin_router router(topic1 -> topic2). -->
+      <!-- TODO service/action wrapper around meilin_router/router_planner, currently topic1 -> topic2. -->
       <AlwaysFailure name="RequestForestPlanPlaceholder"/>
 
       <!--
@@ -113,10 +113,10 @@
       <!--
         TODO custom decorator/action:
           Executes ForestSteps in order. For each step:
-            1. Validate expected KFS on target block once with arm-camera vision service.
+            1. ValidateKFSOnBlock once with arm-camera vision service.
             2. For MOVE, confirm R1 KFS blocking state by camera if the planner marks one.
             3. If camera still sees R1 KFS present, wait for removal and delay briefly.
-            4. Execute adjacent-block motion with lift/lidar confirmation.
+            4. Execute adjacent-block motion with screw feedback, wheel IR and LiDAR confirmation.
             5. For PICK, use arm camera + suction action to pick only R2 KFS.
             6. For PLACE, place current payload temporarily and update state.
             7. Update removed_r2_blocks and current_kfs_map after each result.
